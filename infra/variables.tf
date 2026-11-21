@@ -98,3 +98,14 @@ variable "cloudwatch_log_retention_days" {
   type        = number
   default     = 14
 }
+
+variable "github_repository" {
+  description = "Exact GitHub owner/repository slug used by GitHub Actions OIDC; leave empty to omit CI roles until configured."
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.github_repository == "" || can(regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", var.github_repository))
+    error_message = "github_repository must be empty or an exact owner/repository slug."
+  }
+}

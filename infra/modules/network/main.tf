@@ -153,6 +153,7 @@ resource "aws_vpc_endpoint" "dynamodb" {
 
 locals {
   interface_endpoints = toset([
+    "ec2",
     "ecr.api",
     "ecr.dkr",
     "logs",

@@ -1,0 +1,143 @@
+name: Promote image digests
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_environment:
+        description: Environment containing the approved images
+        required: true
+        type: choice
+        options: [dev, test]
+      target_environment:
+        description: Destination environment
+        required: true
+        type: choice
+        options: [test, prod]
+      commit_sha:
+        description: Full Git commit SHA used as the immutable ECR tag
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  promote:
+    name: Promote ${{ inputs.source_environment }} to ${{ inputs.target_environment }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: ecr-promote-${{ inputs.target_environment }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: Validate promotion sequence and image commit
+        shell: bash
+        env:
+          SOURCE_ENVIRONMENT: ${{ inputs.source_environment }}
+          TARGET_ENVIRONMENT: ${{ inputs.target_environment }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          ROLE_ARN: ${{ vars.ECR_PROMOTION_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          [[ "$SOURCE_ENVIRONMENT:$TARGET_ENVIRONMENT" == dev:test || "$SOURCE_ENVIRONMENT:$TARGET_ENVIRONMENT" == test:prod ]] || { echo 'Only dev-to-test and test-to-prod promotion is allowed.' >&2; exit 1; }
+          [[ "$GITHUB_REF_NAME" == "$SOURCE_ENVIRONMENT" ]] || { echo 'Dispatch from the source environment branch.' >&2; exit 1; }
+          [[ "$COMMIT_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo 'Provide a full 40-character commit SHA.' >&2; exit 1; }
+          git cat-file -e "${COMMIT_SHA}^{commit}"
+          git merge-base --is-ancestor "$COMMIT_SHA" "origin/${SOURCE_ENVIRONMENT}"
+          [[ "$AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]] || { echo 'AWS_ACCOUNT_ID is not configured.' >&2; exit 1; }
+          [[ -n "$AWS_REGION" && "$AWS_REGION" != CHANGE_ME* ]] || { echo 'AWS_REGION is not configured.' >&2; exit 1; }
+          [[ "$ROLE_ARN" == arn:aws:iam::*:role/* ]] || { echo 'ECR_PROMOTION_ROLE_ARN is not configured.' >&2; exit 1; }
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.ECR_PROMOTION_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - name: Install Skopeo for registry-to-registry image copying
+        run: |
+          docker pull --quiet quay.io/skopeo/stable@sha256:075359e92740bec687ed6ec8d12141bdb3666e6547dcd917657e24a7758926ed
+          docker run --rm quay.io/skopeo/stable@sha256:075359e92740bec687ed6ec8d12141bdb3666e6547dcd917657e24a7758926ed --version
+      - name: Copy images without rebuilding and preserve digests
+        shell: bash
+        env:
+          SOURCE_ENVIRONMENT: ${{ inputs.source_environment }}
+          TARGET_ENVIRONMENT: ${{ inputs.target_environment }}
+          COMMIT_SHA: ${{ inputs.commit_sha }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+        run: |
+          set -euo pipefail
+          registry="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          images=(gateway station-reservation billing-wallet energy-dispatch)
+          aws ecr get-login-password --region "$AWS_REGION" | docker login --username AWS --password-stdin "$registry"
+
+          skopeo_image="quay.io/skopeo/stable@sha256:075359e92740bec687ed6ec8d12141bdb3666e6547dcd917657e24a7758926ed"
+
+          declare -A source_digests target_digests
+          # Preflight source and target tags for every image before copying.
+          for image in "${images[@]}"; do
+            source_repo="aegisvolt/${SOURCE_ENVIRONMENT}/${image}"
+            target_repo="aegisvolt/${TARGET_ENVIRONMENT}/${image}"
+            set +e
+            source_output="$(aws ecr describe-images --repository-name "$source_repo" --image-ids "imageTag=$COMMIT_SHA" --query 'imageDetails[0].imageDigest' --output text 2>&1)"
+            source_status=$?
+            set -e
+            if [[ $source_status -ne 0 ]]; then
+              [[ "$source_output" == *"ImageNotFoundException"* ]] && { echo "No approved source image for ${image}:${COMMIT_SHA}." >&2; exit 1; }
+              [[ "$source_output" == *"AccessDeniedException"* ]] && { echo "${image}: AWS denied source image lookup." >&2; exit 1; }
+              [[ "$source_output" == *"ThrottlingException"* || "$source_output" == *"TooManyRequestsException"* ]] && { echo "${image}: AWS throttled source image lookup." >&2; exit 1; }
+              echo "${image}: unexpected AWS error during source image lookup: $source_output" >&2
+              exit 1
+            fi
+            [[ "$source_output" == sha256:* ]] || { echo "${image}: unexpected source digest: $source_output" >&2; exit 1; }
+            source_digests[$image]="$source_output"
+
+            set +e
+            target_output="$(aws ecr describe-images --repository-name "$target_repo" --image-ids "imageTag=$COMMIT_SHA" --query 'imageDetails[0].imageDigest' --output text 2>&1)"
+            target_status=$?
+            set -e
+            if [[ $target_status -eq 0 ]]; then
+              [[ "$target_output" == sha256:* ]] || { echo "${image}: unexpected target digest: $target_output" >&2; exit 1; }
+              target_digests[$image]="$target_output"
+              [[ "$target_output" == "$source_output" ]] || { echo "${image}: target SHA tag exists with a different digest; refusing overwrite." >&2; exit 1; }
+            else
+              [[ "$target_output" == *"ImageNotFoundException"* ]] || {
+                [[ "$target_output" == *"AccessDeniedException"* ]] && { echo "${image}: AWS denied target image lookup." >&2; exit 1; }
+                [[ "$target_output" == *"ThrottlingException"* || "$target_output" == *"TooManyRequestsException"* ]] && { echo "${image}: AWS throttled target image lookup." >&2; exit 1; }
+                echo "${image}: unexpected AWS error during target image lookup: $target_output" >&2
+                exit 1
+              }
+              target_digests[$image]=""
+            fi
+          done
+
+          for image in "${images[@]}"; do
+            source_repo="aegisvolt/${SOURCE_ENVIRONMENT}/${image}"
+            target_repo="aegisvolt/${TARGET_ENVIRONMENT}/${image}"
+            source_digest="${source_digests[$image]}"
+            target_digest="${target_digests[$image]}"
+            if [[ "$target_digest" == "$source_digest" ]]; then
+              echo "${image}: target already contains the same digest ${source_digest}."
+              continue
+            fi
+            docker run --rm -v "$HOME/.docker:/root/.docker:ro" "$skopeo_image" copy --all --preserve-digests \
+              "docker://${registry}/${source_repo}:${COMMIT_SHA}" \
+              "docker://${registry}/${target_repo}:${COMMIT_SHA}"
+            set +e
+            copied_output="$(aws ecr describe-images --repository-name "$target_repo" --image-ids "imageTag=$COMMIT_SHA" --query 'imageDetails[0].imageDigest' --output text 2>&1)"
+            copied_status=$?
+            set -e
+            if [[ $copied_status -ne 0 ]]; then
+              [[ "$copied_output" == *"AccessDeniedException"* ]] && { echo "${image}: AWS denied copied image verification." >&2; exit 1; }
+              [[ "$copied_output" == *"ThrottlingException"* || "$copied_output" == *"TooManyRequestsException"* ]] && { echo "${image}: AWS throttled copied image verification." >&2; exit 1; }
+              echo "${image}: unexpected AWS error after promotion: $copied_output" >&2
+              exit 1
+            fi
+            copied_digest="$copied_output"
+            [[ "$copied_digest" == "$source_digest" ]] || { echo "${image}: digest mismatch after promotion." >&2; exit 1; }
+            printf -- '- `%s:%s` -> `%s:%s` (%s)\n' "${registry}/${source_repo}" "$COMMIT_SHA" "${registry}/${target_repo}" "$COMMIT_SHA" "$source_digest" >> "$GITHUB_STEP_SUMMARY"
+          done

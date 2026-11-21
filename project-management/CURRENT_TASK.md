@@ -81,3 +81,15 @@ work remains outside scope pending approval.
 Frontend integration is complete for the current dev contract. Remaining work
 requires separate approval: test/prod gateways, surge/boost rules, persistent
 flag management, SAGA detail/pagination, infrastructure, and deployment.
+
+## Phase 4 canary readiness status
+
+**Audit date:** 2026-11-21. The Phase 4 repository audit and deployment guide
+are in `docs/PHASE4_CANARY_READINESS_AUDIT.md` and
+`docs/PHASE4_CANARY_DEPLOYMENT_GUIDE.md`. Canary deployment remains blocked:
+the checked-in NGINX Ingress is not part of Kustomize and no traffic router,
+private deployment runner, EKS deployment role, or request-level analysis
+metrics are configured. The `canary-readiness.yml` workflow is a non-deploying
+fail-closed gate. No AWS/GitHub live inspection or infrastructure mutation was
+performed. Repository-side Phase 4 code does not authorize live AWS/Kubernetes
+deployment; those operations still require separate approval.

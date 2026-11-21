@@ -1,56 +1,62 @@
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: gateway-stable
+  name: gateway
   namespace: aegisvolt
 spec:
   replicas: 2
   strategy:
     type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
   selector:
-    matchLabels: { app: gateway, track: stable }
+    matchLabels:
+      app: gateway
   template:
     metadata:
-      labels: { app: gateway, track: stable }
+      labels:
+        app: gateway
     spec:
+      serviceAccountName: gateway
+      securityContext:
+        seccompProfile:
+          type: RuntimeDefault
       containers:
         - name: gateway
-          image: aegisvolt/gateway:latest
-          ports: [{containerPort: 8000}]
+          image: aegisvolt-gateway:CHANGE_ME_TAG
+          imagePullPolicy: IfNotPresent
+          ports:
+            - name: http
+              containerPort: 8000
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: aegisvolt-config
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop: ["ALL"]
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 65532
+          startupProbe:
+            tcpSocket:
+              port: http
+            periodSeconds: 5
+            failureThreshold: 24
           livenessProbe:
-            httpGet: {path: /health, port: 8000}
-            initialDelaySeconds: 5
+            tcpSocket:
+              port: http
             periodSeconds: 10
           readinessProbe:
-            httpGet: {path: /health, port: 8000}
+            tcpSocket:
+              port: http
             periodSeconds: 5
----
-apiVersion: apps/v1
-kind: Deployment
-metadata:
-  name: gateway-canary
-  namespace: aegisvolt
-spec:
-  replicas: 1
-  selector:
-    matchLabels: { app: gateway, track: canary }
-  template:
-    metadata:
-      labels: { app: gateway, track: canary }
-    spec:
-      containers:
-        - name: gateway
-          image: aegisvolt/gateway:canary
-          ports: [{containerPort: 8000}]
-          livenessProbe:
-            httpGet: {path: /health, port: 8000}
-            periodSeconds: 10
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: gateway
-  namespace: aegisvolt
-spec:
-  selector: { app: gateway }
-  ports: [{port: 80, targetPort: 8000}]

@@ -185,8 +185,16 @@ corrected, `fmt`/`validate`/plans have passed, and AWS use is explicitly
 approved. The `dev`, `test`, and `prod` tfvars currently contain identical
 values and do not by themselves establish environment isolation.
 
-## Kubernetes (not deployed or validated in Phase 0)
+## Kubernetes (manifests only; not deployed)
 
-`kubectl apply -f k8s/namespace.yaml -f k8s/gateway-deployment.yaml -f k8s/canary-service.yaml`
+The checked-in Kustomize base declares four application Deployments and
+ClusterIP Services. It contains placeholder AWS account, region, image, and
+IRSA values. Render it locally with `kubectl kustomize k8s`; do not apply it
+to a cluster without the separate deployment approval and completed
+prerequisites in the [EKS guide](EKS_KUBERNETES_DEPLOYMENT_GUIDE.md).
 
-Run `.\scripts\canary_check.ps1 -Deployment gateway-canary`.
+The unbundled `k8s/canary-service.yaml` is not an operational canary: there is
+no configured NGINX Ingress controller or stable/canary workload routing.
+There is no `scripts/canary_check.ps1` implementation. See the
+[Phase 4 readiness audit](PHASE4_CANARY_READINESS_AUDIT.md); no live canary or
+automated rollback is available.

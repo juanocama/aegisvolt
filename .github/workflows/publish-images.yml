@@ -1,0 +1,156 @@
+name: Publish AegisVolt images
+
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish four images to dev ECR
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    environment:
+      name: ecr-publish-dev
+    outputs:
+      gateway_uri: ${{ steps.build.outputs.gateway_uri }}
+      station_reservation_uri: ${{ steps.build.outputs.station_reservation_uri }}
+      billing_wallet_uri: ${{ steps.build.outputs.billing_wallet_uri }}
+      energy_dispatch_uri: ${{ steps.build.outputs.energy_dispatch_uri }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Validate selected branch and environment configuration
+        shell: bash
+        env:
+          TARGET_ENVIRONMENT: dev
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          ROLE_ARN: ${{ vars.ECR_PUBLISH_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          [[ "$TARGET_ENVIRONMENT" == dev ]] || exit 1
+          test "$GITHUB_REF_NAME" = "$TARGET_ENVIRONMENT" || {
+            echo "Select the matching $TARGET_ENVIRONMENT branch when dispatching this workflow." >&2
+            exit 1
+          }
+          [[ "$AWS_ACCOUNT_ID" =~ ^[0-9]{12}$ ]] || { echo 'AWS_ACCOUNT_ID is not configured.' >&2; exit 1; }
+          [[ -n "$AWS_REGION" && "$AWS_REGION" != CHANGE_ME* ]] || { echo 'AWS_REGION is not configured.' >&2; exit 1; }
+          [[ "$ROLE_ARN" == arn:aws:iam::*:role/* ]] || { echo 'ECR_PUBLISH_ROLE_ARN is not configured.' >&2; exit 1; }
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.ECR_PUBLISH_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+      - uses: aws-actions/amazon-ecr-login@062b18b96a7aff071d4dc91bc00c4c1a7945b076 # v2.0.1
+      - uses: docker/setup-buildx-action@e468171a9de216ec08956ac3ada2f0791b6bd435 # v3.11.1
+      - name: Build and push immutable Git SHA tags
+        id: build
+        shell: bash
+        env:
+          TARGET_ENVIRONMENT: dev
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          AWS_ACCOUNT_ID: ${{ vars.AWS_ACCOUNT_ID }}
+          IMAGE_TAG: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          registry="${AWS_ACCOUNT_ID}.dkr.ecr.${AWS_REGION}.amazonaws.com"
+          declare -A dockerfiles=(
+            [gateway]='gateway/Dockerfile'
+            [station-reservation]='services/station-reservation/Dockerfile'
+            [billing-wallet]='services/billing-wallet/Dockerfile'
+            [energy-dispatch]='services/energy-dispatch/Dockerfile'
+          )
+          images=(gateway station-reservation billing-wallet energy-dispatch)
+
+          declare -A existing_digests
+          declare -A must_publish
+
+          describe_tag() {
+            local repository="$1"
+            local output_file="$2"
+            set +e
+            aws ecr describe-images \
+              --repository-name "$repository" \
+              --image-ids "imageTag=${IMAGE_TAG}" \
+              --query 'imageDetails[0].imageDigest' \
+              --output text >"$output_file" 2>&1
+            local status=$?
+            set -e
+            return "$status"
+          }
+
+          # Preflight every repository before publishing any image. AWS errors
+          # are fatal; only ImageNotFoundException means this tag is absent.
+          for image in "${images[@]}"; do
+            uri="${registry}/aegisvolt/${TARGET_ENVIRONMENT}/${image}"
+            repository="aegisvolt/${TARGET_ENVIRONMENT}/${image}"
+            error_file="/tmp/aegisvolt-${image}-describe.txt"
+            if describe_tag "$repository" "$error_file"; then
+              existing="$(cat "$error_file")"
+              [[ "$existing" == sha256:* ]] || {
+                echo "${image}: unexpected ECR describe-images result: $existing" >&2
+                exit 1
+              }
+              existing_digests[$image]="$(cat "$error_file")"
+              must_publish[$image]=false
+            else
+              detail="$(cat "$error_file")"
+              if [[ "$detail" == *"ImageNotFoundException"* ]]; then
+                must_publish[$image]=true
+              elif [[ "$detail" == *"RepositoryNotFoundException"* ]]; then
+                echo "${image}: target ECR repository does not exist: $repository" >&2
+                exit 1
+              elif [[ "$detail" == *"AccessDeniedException"* ]]; then
+                echo "${image}: AWS denied the ECR tag lookup: $repository" >&2
+                exit 1
+              elif [[ "$detail" == *"ThrottlingException"* || "$detail" == *"TooManyRequestsException"* || "$detail" == *"RequestLimitExceeded"* ]]; then
+                echo "${image}: AWS throttled the ECR tag lookup: $repository" >&2
+                exit 1
+              else
+                echo "${image}: unexpected AWS error during ECR tag lookup: $detail" >&2
+                exit 1
+              fi
+            fi
+          done
+
+          # An existing immutable SHA tag is canonical; do not rebuild or
+          # overwrite it. This makes partial retries consistent without trying
+          # to reproduce a prior manifest digest locally.
+          for image in "${images[@]}"; do
+            if [[ "${must_publish[$image]}" == false ]]; then
+              uri="${registry}/aegisvolt/${TARGET_ENVIRONMENT}/${image}"
+              echo "${image}: SHA tag ${IMAGE_TAG} already exists with digest ${existing_digests[$image]}; skipping."
+              printf -- '- `%s:%s` (already published, %s)\n' "$uri" "$IMAGE_TAG" "${existing_digests[$image]}" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
+
+          # Publish only repositories whose SHA tag was absent.
+          for image in "${images[@]}"; do
+            if [[ "${must_publish[$image]}" == true ]]; then
+              uri="${registry}/aegisvolt/${TARGET_ENVIRONMENT}/${image}"
+              metadata="/tmp/aegisvolt-${image}-${IMAGE_TAG}.json"
+              docker buildx build \
+                --file "${dockerfiles[$image]}" \
+                --platform linux/amd64 \
+                --provenance=false \
+                --sbom=false \
+                --metadata-file "$metadata" \
+                --tag "${uri}:${IMAGE_TAG}" \
+                --cache-from "type=gha,scope=${image}" \
+                --cache-to "type=gha,scope=${image},mode=max" \
+                --push .
+              published_digest="$(aws ecr describe-images \
+                --repository-name "aegisvolt/${TARGET_ENVIRONMENT}/${image}" \
+                --image-ids "imageTag=${IMAGE_TAG}" \
+                --query 'imageDetails[0].imageDigest' \
+                --output text)"
+              intended_digest="$(python -c 'import json,sys; print(json.load(open(sys.argv[1])).get("containerimage.digest",""))' "$metadata")"
+              [[ "$published_digest" == sha256:* ]] || { echo "${image}: publish did not create a readable ECR digest." >&2; exit 1; }
+              [[ "$intended_digest" == "$published_digest" ]] || { echo "${image}: digest mismatch after publishing." >&2; exit 1; }
+              echo "${image}: published immutable SHA tag ${IMAGE_TAG} with digest ${published_digest}."
+              output_name="${image//-/_}_uri"
+              printf '%s=%s:%s\n' "$output_name" "$uri" "$IMAGE_TAG" >> "$GITHUB_OUTPUT"
+              printf -- '- `%s:%s`\n' "$uri" "$IMAGE_TAG" >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done

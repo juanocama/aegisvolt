@@ -51,3 +51,18 @@ The gateway reports the read-only official flags
 `false`. Only the hardware-fault flag currently gates the existing
 per-request fault-injection input. Local Compose provides only `dev`; the
 pricing and boost flags have no business effect until their rules are approved.
+
+## CI/CD
+
+GitHub Actions validation, non-publishing image builds, protected ECR
+publishing/promotion, OIDC role prerequisites, and the manual Terraform plan
+boundary are documented in
+[`docs/CI_CD_AUTOMATION.md`](docs/CI_CD_AUTOMATION.md). No workflow deploys to
+EKS or runs Terraform apply.
+
+Phase 4 canary deployment is currently blocked: no operational traffic router,
+private-network deployment runner, deployment OIDC role, or request-level
+canary metrics are configured. The manual canary readiness workflow fails
+closed and does not contact AWS or EKS. See
+[`docs/PHASE4_CANARY_READINESS_AUDIT.md`](docs/PHASE4_CANARY_READINESS_AUDIT.md)
+and [`docs/PHASE4_CANARY_DEPLOYMENT_GUIDE.md`](docs/PHASE4_CANARY_DEPLOYMENT_GUIDE.md).

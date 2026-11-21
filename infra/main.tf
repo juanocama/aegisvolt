@@ -1,4 +1,8 @@
-locals { prefix = "${terraform.workspace}-aegisvolt" }
+locals {
+  prefix       = "${terraform.workspace}-aegisvolt"
+  table_prefix = "aegisvolt-${terraform.workspace}"
+  cluster_name = "${local.prefix}-${var.cluster_name}"
+}
 
 resource "terraform_data" "workspace_guard" {
   lifecycle {
@@ -25,13 +29,14 @@ module "network" {
 
 module "dynamodb" {
   source                     = "./modules/dynamodb"
-  prefix                     = local.prefix
+  prefix                     = local.table_prefix
   enable_deletion_protection = var.enable_dynamodb_deletion_protection
 }
 
 module "observability" {
   source             = "./modules/observability"
   prefix             = local.prefix
+  cluster_name       = local.cluster_name
   log_retention_days = var.cloudwatch_log_retention_days
 }
 
@@ -43,7 +48,8 @@ module "api_gateway" {
 module "eks_ecr" {
   source              = "./modules/eks_ecr"
   prefix              = local.prefix
-  cluster_name        = "${local.prefix}-${var.cluster_name}"
+  environment_name    = terraform.workspace
+  cluster_name        = local.cluster_name
   private_subnet_ids  = module.network.private_subnet_ids
   vpc_id              = module.network.vpc_id
   vpc_cidr            = module.network.vpc_cidr
@@ -53,4 +59,14 @@ module "eks_ecr" {
   instance_types      = var.node_instance_types
   dynamodb_table_arns = module.dynamodb.table_arns
   log_group_arns      = module.observability.log_group_arns
+}
+
+module "github_actions_ecr" {
+  count  = var.github_repository == "" ? 0 : 1
+  source = "./modules/github_actions_ecr"
+
+  prefix            = local.prefix
+  environment_name  = terraform.workspace
+  github_repository = var.github_repository
+  region            = var.region
 }

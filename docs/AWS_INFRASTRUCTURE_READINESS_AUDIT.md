@@ -268,3 +268,231 @@ deferring private-only cluster management until a VPN or equivalent path exists.
 
 No AWS authentication, AWS API query, remote-state command, Terraform plan,
 workspace operation, apply, destroy, or infrastructure creation was performed.
+
+## Phase 2.1 integration correction status
+
+**Verification date:** 2026-11-21
+
+### Corrected
+
+- DynamoDB names now match the application environment convention:
+  `aegisvolt-{dev|test|prod}-{stations|wallets|dispatch|sagas}`.
+- Workload IAM policies now include `dynamodb:DescribeTable` for only the
+  corresponding service table ARN.
+- The private-subnet network now declares an EC2 interface VPC endpoint in
+  addition to ECR, S3, DynamoDB, CloudWatch Logs, and STS endpoints.
+- The EKS cluster log group now uses the actual Terraform cluster name:
+  `/aws/eks/${cluster_name}/cluster`.
+- ECR repositories use environment-qualified names
+  `aegisvolt/{environment}/{workload}` and the module exposes repository URLs
+  for later Kubernetes image configuration.
+
+### DynamoDB names verified
+
+| Workload | Table name contract | Terraform module result |
+|---|---|---|
+| station-reservation | `aegisvolt-{env}-stations` | `aegisvolt-{env}-stations` |
+| billing-wallet | `aegisvolt-{env}-wallets` | `aegisvolt-{env}-wallets` |
+| energy-dispatch | `aegisvolt-{env}-dispatch` | `aegisvolt-{env}-dispatch` |
+| GraphQL gateway | `aegisvolt-{env}-sagas` | `aegisvolt-{env}-sagas` |
+
+The runtime `ensure_table()` call can now describe, read, write, and transact
+against the corresponding table, subject to successful startup and no hidden
+application behavior outside the inspected source. Runtime table creation
+remains outside the scoped workload policy.
+
+### Node connectivity
+
+The EC2 interface endpoint is a configuration-level correction for private
+node networking. It does not prove that the VPC CNI or EC2 API calls work
+without runtime AWS/Kubernetes verification. NAT remains disabled by default;
+enabling it remains an explicit cost decision for general Internet egress.
+
+### Manifest blockers outside this phase
+
+The inspected Kubernetes manifest still does not:
+
+- Create or reference ServiceAccounts for `station-reservation`,
+  `billing-wallet`, `energy-dispatch`, or `gateway`.
+- Annotate a gateway ServiceAccount with an IRSA role ARN.
+- Set `ENVIRONMENT`, `TABLE_NAME`, `SAGA_TABLE`, service URLs, or the
+  official feature-flag environment variables for gateway and workloads.
+- Deploy the three application microservices and their Services.
+- Reference the real ECR repository URLs and environment-specific tags.
+
+The API Gateway HTTP API still has no route, integration, authentication,
+backend target, or VPC link. Terraform must not claim it can receive GraphQL
+traffic until the Kubernetes ingress/load-balancer contract exists.
+
+These Kubernetes and API Gateway items are intentionally unchanged because
+the active scope prohibits modifying manifests or application integration
+files beyond the Terraform architecture.
+
+### Phase 2.1 validation
+
+- `terraform -chdir=infra fmt -recursive` — passed.
+- `terraform -chdir=infra fmt -check -recursive` — passed.
+- `terraform -chdir=infra init -backend=false` — passed.
+- `terraform -chdir=infra validate` — passed.
+
+No apply, destroy, plan, remote-state initialization, AWS API call, resource
+creation, commit, or push was performed.
+
+## Phase 2.2 Kubernetes integration status
+
+**Verification date:** 2026-11-21
+
+### Implemented and locally validated
+
+- A Kustomize base now includes Namespace, ConfigMap, four ServiceAccounts,
+  four Deployments, and four ClusterIP Services.
+- The gateway and all three FastAPI microservices have rolling-update strategy,
+  CPU/memory requests and limits, pod security contexts, and service account
+  references.
+- Service probes use the real application ports and `/health` endpoints for
+  the three FastAPI services.
+- The gateway uses TCP startup, readiness, and liveness probes because the
+  inspected gateway source does not define an HTTP `/health` endpoint.
+- Internal gateway URLs use Kubernetes DNS names for the three microservices.
+- IRSA role annotations are represented with explicit account-ID placeholders
+  and exact Terraform workload role names.
+- ECR images use explicit immutable-tag placeholders and Kustomize image
+  override entries.
+- Terraform exposes workload role ARNs, ECR repository URLs, EKS names, and
+  DynamoDB table names at the root module.
+
+### Implemented but not runtime-tested
+
+- IRSA ServiceAccount annotations.
+- Pod startup under a non-root numeric user.
+- DynamoDB access through IRSA.
+- Gateway-to-service DNS reachability.
+- ECR image pulls.
+- Kubernetes probe behavior.
+
+### Remaining blockers
+
+- Real AWS account ID, region, role ARNs, repository URLs, and image tags.
+- Gateway HTTP `/health` endpoint implementation or a documented TCP-only
+  probe decision.
+- Test/prod environment overlays.
+- Public GraphQL ingress or API Gateway integration.
+- AWS deployment of the ECR images and EKS workloads.
+
+The existing `k8s/canary-service.yaml` is not part of the Kustomize base. It
+was not converted into a verified public GraphQL route.
+
+### Phase 2.2 validation
+
+- `terraform -chdir=infra fmt -recursive` — passed.
+- `terraform -chdir=infra fmt -check -recursive` — passed.
+- `terraform -chdir=infra init -backend=false` — passed.
+- `terraform -chdir=infra validate` — passed.
+- `kubectl kustomize k8s` — passed and rendered the Namespace, ConfigMap,
+  ServiceAccounts, Services, and Deployments.
+- `kubeconform` — unavailable locally.
+- Standalone `kustomize` executable — unavailable locally.
+
+No AWS API call, cluster connection, image push, Kubernetes apply, remote-state
+command, apply, or destroy was performed.
+
+## Phase 3.1 CI/CD remediation status
+
+**Verification date:** 2026-11-21
+
+### Remediated
+
+- Frontend CI uses Node 24.15.0; the package lock remains unchanged.
+- ECR publish preflights all repositories, skips matching immutable SHA tags,
+  rejects mismatched tags, and verifies post-push digests.
+- Publisher IAM has `ecr:DescribeImages` scoped to the four target repositories.
+- Workflow third-party actions are pinned to verified full commit SHAs with
+  readable version comments.
+- `id-token: write` is job-scoped to publish, promote, and remote-plan jobs.
+- Remote Terraform plan preflight now fails before AWS authentication when
+  configuration contains placeholders or environment/branch mismatch.
+
+### Validation resolution
+
+- Python: compensation test and full suite pass locally, 16 tests.
+- Terraform: formatting and provider-schema validation pass locally.
+- Docker: Docker Desktop is accessible and all four Dockerfiles build.
+- Kubernetes: Kustomize rendering passes locally.
+- Workflow YAML: all four workflow files parse with PyYAML.
+- `actionlint`: unavailable locally.
+
+### Outstanding blockers
+
+- GitHub Environments, variables, branch rules, and OIDC roles remain manual.
+- AWS account ID, region, role ARNs, backend bucket, tfvars, and GitHub slug
+  remain placeholders.
+- Skopeo installation is still tied to the hosted runner apt package and has
+  not been pinned to an exact reproducible package or official binary/digest.
+- GitHub-hosted execution and AWS runtime behavior remain unverified.
+
+## Phase 3.2 final CI/CD corrections
+
+**Verification date:** 2026-11-21
+
+### Final publication behavior
+
+- Initial publication is restricted to `dev`.
+- Test/prod cannot invoke initial publication.
+- Existing immutable SHA tags are skipped without rebuilding or overwriting.
+- Missing tags are published once and verified against ECR digests.
+- AWS describe errors are distinguished and unexpected errors fail closed.
+- A partial publication remains consistent on retry because existing tags
+  remain canonical and missing tags are published only once.
+
+The workflow cannot prove the source provenance of an existing tag created
+outside it. That provenance limitation must be addressed with signed provenance
+or attestation in a later supply-chain phase.
+
+### Promotion behavior
+
+The promotion workflow remains dev-to-test and test-to-prod only. It performs
+no rebuild, verifies source and target tags/digests, refuses target conflicts,
+and verifies copied digests.
+
+The IAM module creates publisher access only in the dev workspace. Promoter
+roles remain for test/prod and remain scoped to adjacent environment
+repositories.
+
+### Skopeo
+
+Skopeo promotion uses pinned official image
+`quay.io/skopeo/stable@sha256:075359e92740bec687ed6ec8d12141bdb3666e6547dcd917657e24a7758926ed`,
+verified against Skopeo v1.25.1 release metadata and the Quay manifest tag.
+
+### ECR immutability
+
+Verified in Terraform: all application repositories declare
+`image_tag_mutability = "IMMUTABLE"`. This includes gateway,
+station-reservation, billing-wallet, and energy-dispatch.
+
+### Local validation
+
+- Workflow YAML parsing: required.
+- Action SHA format validation: required.
+- Terraform formatting/validation: required.
+- Kubernetes rendering: required.
+- GitHub/AWS execution: not performed and cannot be inferred locally.
+
+## Phase 4 canary readiness (2026-11-21)
+
+This repository inspection supersedes earlier phase notes that described the
+unused `k8s/canary-service.yaml` as a 10% canary. The file is not included in
+Kustomize, there is no stable Ingress or NGINX controller, and the ordinary
+gateway Service has no separate canary Deployment behind it. No traffic split
+or automatic rollback is implemented. See
+[`PHASE4_CANARY_READINESS_AUDIT.md`](PHASE4_CANARY_READINESS_AUDIT.md).
+
+Terraform source declares a private-only EKS endpoint, worker node group, and
+core add-ons, but none were checked live. There is no separate EKS deployment
+OIDC role or configured private-network GitHub runner. Application request
+error/latency metrics are absent; the microservices' `/health` endpoints and
+gateway TCP probe are process-readiness signals only. The new
+`canary-readiness.yml` workflow is a no-deployment guard with `contents: read`
+only and no AWS/Kubernetes access. The Phase 4 guide and readiness audit record
+the exact prerequisites. No AWS resources, GitHub settings, or project
+infrastructure were modified.

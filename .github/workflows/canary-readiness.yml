@@ -1,0 +1,49 @@
+name: Canary deployment readiness (no deployment)
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Environment to assess
+        required: true
+        type: choice
+        options: [dev, test, prod]
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    name: Report deployment prerequisites
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail closed until private canary prerequisites exist
+        shell: bash
+        env:
+          TARGET_ENVIRONMENT: ${{ inputs.environment }}
+          PRIVATE_RUNNER_READY: ${{ vars.EKS_PRIVATE_RUNNER_READY }}
+          ROUTER_READY: ${{ vars.CANARY_TRAFFIC_ROUTER_READY }}
+          REQUEST_METRICS_READY: ${{ vars.CANARY_REQUEST_METRICS_READY }}
+          DEPLOY_ROLE_ARN: ${{ vars.EKS_DEPLOYMENT_ROLE_ARN }}
+          CLUSTER_NAME: ${{ vars.EKS_CLUSTER_NAME }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          set -euo pipefail
+          blockers=()
+          [[ "$TARGET_ENVIRONMENT" =~ ^(dev|test|prod)$ ]] || blockers+=("Select dev, test, or prod.")
+          [[ "$GITHUB_REF_NAME" == "$TARGET_ENVIRONMENT" ]] || blockers+=("Dispatch from the matching protected environment branch.")
+          [[ "$PRIVATE_RUNNER_READY" == true ]] || blockers+=("No approved private-network runner readiness is configured.")
+          [[ "$ROUTER_READY" == true ]] || blockers+=("No operational canary traffic router is configured and verified.")
+          [[ "$REQUEST_METRICS_READY" == true ]] || blockers+=("No trustworthy request-level canary metrics are configured and verified.")
+          [[ "$DEPLOY_ROLE_ARN" == arn:aws:iam::*:role/* ]] || blockers+=("A separate least-privilege EKS deployment OIDC role is not configured.")
+          [[ -n "$CLUSTER_NAME" && "$CLUSTER_NAME" != CHANGE_ME* ]] || blockers+=("EKS_CLUSTER_NAME is not configured.")
+          [[ -n "$AWS_REGION" && "$AWS_REGION" != CHANGE_ME* ]] || blockers+=("AWS_REGION is not configured.")
+          if ((${#blockers[@]})); then
+            printf 'Canary deployment is blocked for %s:\n' "$TARGET_ENVIRONMENT" >&2
+            printf ' - %s\n' "${blockers[@]}" >&2
+            echo 'This workflow does not request AWS credentials or contact EKS.' >&2
+            exit 1
+          fi
+          echo 'Prerequisite flags are set, but this workflow is a readiness gate only; it does not deploy.' >&2
+          echo 'A reviewed rollout controller, deploy workflow, and rollback implementation are still required.' >&2
+          exit 1

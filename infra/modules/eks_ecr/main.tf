@@ -42,10 +42,15 @@ variable "log_group_arns" {
   type = map(string)
 }
 
+variable "environment_name" {
+  type        = string
+  description = "Environment name used in ECR repository naming."
+}
+
 resource "aws_ecr_repository" "service" {
   for_each             = toset(["gateway", "station-reservation", "billing-wallet", "energy-dispatch", "frontend"])
-  name                 = "${var.prefix}-${each.key}"
-  image_tag_mutability = "MUTABLE"
+  name                 = "aegisvolt/${var.environment_name}/${each.key}"
+  image_tag_mutability = "IMMUTABLE"
   image_scanning_configuration { scan_on_push = true }
 }
 
@@ -210,6 +215,7 @@ resource "aws_iam_policy" "workload" {
         Effect = "Allow"
         Action = [
           "dynamodb:GetItem",
+          "dynamodb:DescribeTable",
           "dynamodb:PutItem",
           "dynamodb:UpdateItem",
           "dynamodb:DeleteItem",
@@ -252,4 +258,8 @@ output "oidc_provider_arn" {
 
 output "workload_role_arns" {
   value = { for name, role in aws_iam_role.workload : name => role.arn }
+}
+
+output "ecr_repository_urls" {
+  value = { for name, repository in aws_ecr_repository.service : name => repository.repository_url }
 }

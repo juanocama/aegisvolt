@@ -6,6 +6,10 @@ variable "log_retention_days" {
   type = number
 }
 
+variable "cluster_name" {
+  type = string
+}
+
 locals {
   application_services = toset([
     "gateway",
@@ -22,7 +26,7 @@ resource "aws_cloudwatch_log_group" "app" {
 }
 
 resource "aws_cloudwatch_log_group" "cluster" {
-  name              = "/aws/eks/${var.prefix}-cluster/cluster"
+  name              = "/aws/eks/${var.cluster_name}/cluster"
   retention_in_days = var.log_retention_days
 }
 

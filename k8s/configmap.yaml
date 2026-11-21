@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aegisvolt-config
+  namespace: aegisvolt
+data:
+  ENVIRONMENT: dev
+  AWS_DEFAULT_REGION: CHANGE_ME_AWS_REGION
+  STATION_URL: http://station-reservation:8001
+  BILLING_URL: http://billing-wallet:8002
+  DISPATCH_URL: http://energy-dispatch:8003
+  SAGA_TABLE: aegisvolt-dev-sagas
+  ENABLE_DYNAMIC_SURGE_PRICING: "false"
+  ENABLE_FAST_CHARGE_BOOST: "false"
+  SIMULATE_CHARGER_HARDWARE_FAULT: "false"
