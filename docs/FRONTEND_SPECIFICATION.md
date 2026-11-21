@@ -155,18 +155,17 @@ is retryable. After retry, refresh the list and show its returned state.
 
 Purpose: inspect runtime feature-flag status in the selected environment.
 
-Display each returned `{ name, enabled }` pair, with clear enabled/disabled
-labels and a short explanation for the two current gateway values:
-`canaryCharge` and `chargerFaultSimulation`.
-
-The official assignment names `ENABLE_DYNAMIC_SURGE_PRICING`,
-`ENABLE_FAST_CHARGE_BOOST`, and `SIMULATE_CHARGER_HARDWARE_FAULT` and requires
-independent states for each environment. The current backend instead reads
-`FLAG_CANARY` and `FLAG_FAULT` process environment variables and exposes only
-two flags through a read-only query. No mutation persists flag changes. Until
-the backend implements the official contract, this screen is **read-only** and
-must visibly state that flag editing and official flag names are not yet
-available. Do not create a fake toggle or send a guessed `setFlag` mutation.
+Display each returned `{ name, enabled }` pair using the official names
+`ENABLE_DYNAMIC_SURGE_PRICING`, `ENABLE_FAST_CHARGE_BOOST`, and
+`SIMULATE_CHARGER_HARDWARE_FAULT`, with clear enabled/disabled labels.
+The backend reads read-only process environment values (false by default);
+there is no flag mutation or persistent flag store. Local Compose provides
+only `dev`. The hardware-fault flag gates the existing per-request
+`chargeFault` test input. Surge pricing and fast-charge boost are reported but
+do not alter charging behavior until their business rules are approved.
+Environment values are isolated only when separate gateway and service
+processes use separate environment configuration and tables; a frontend
+selector alone does not provide isolation.
 
 ## 5. GraphQL operations allowed by the current backend
 

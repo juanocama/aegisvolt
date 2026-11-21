@@ -37,8 +37,9 @@ Terraform, Kubernetes, observability, and promotion workflow.
 
 ## Immediate sequence
 
-1. Freeze and correct backend/API contracts and multi-environment configuration.
-2. Implement frontend against the approved real contract, using
+1. Review and approve remaining product/environment decisions; then authorize a
+   distinct next phase.
+2. Implement frontend against the current verified contract, using
    `prompts/frontend/FRONTEND_IMPLEMENTATION_PROMPT.md`.
 3. Add browser E2E and improve local integration behavior.
 4. Complete and validate Terraform/Kubernetes networking and deployments.
@@ -58,9 +59,11 @@ Terraform, Kubernetes, observability, and promotion workflow.
 
 ## Current approval boundary
 
-Phase 0 baseline verification is complete to the extent the environment
-allowed, and the contract snapshot is recorded. Full local Compose startup
-remains blocked by the unavailable Docker Desktop engine, and the directory
-has no Git metadata. The next recommended implementation task is Phase 1
-backend contract/correctness remediation (see `CURRENT_TASK.md` and
-`HANDOFF.md`); it has not been started. Wait for explicit user approval.
+Phase 0 baseline verification and the authorized Phase 1 backend correctness
+work are complete within the available verification boundary. The backend
+suite reports 16 passed; Phase 1 HTTP introspection matches the checked-in SDL
+without signature changes. Full local Compose startup remains blocked by the
+unavailable Docker Desktop engine, and the directory has no Git metadata.
+Phase 1 is stopped. Do not start Phase 2, frontend, or deployment work until
+the user explicitly approves the next task. See `CURRENT_TASK.md`,
+`IMPLEMENTATION_STATUS.md`, and `HANDOFF.md` for evidence and limitations.

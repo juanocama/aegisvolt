@@ -5,12 +5,14 @@ confirmed by HTTP introspection and snapshotted at
 [`graphql/schema.graphql`](./graphql/schema.graphql). The gateway is mounted at
 `/graphql`; GraphQL names use Strawberry's default camel-case conversion.
 
-**Verification scope (2026-11-20):** a temporary Uvicorn server served the
-gateway on `127.0.0.1:8000` with Moto backing its startup DynamoDB table. An
-HTTP POST to `/graphql` with the standard introspection query returned status
-200, `Query` and `Mutation` roots, and no GraphQL errors. The test did not call
-station, billing, or dispatch services. Docker Compose could not be started
-because the Docker Desktop Linux engine was unavailable.
+**Verification scope:** Phase 0 introspection was run over temporary Uvicorn
+with Moto. Phase 1 tests exercise GraphQL and all three FastAPI services
+in-process with Moto-backed DynamoDB. They do not prove Docker networking,
+Floci behavior, or live AWS DynamoDB behavior. Docker Compose remains
+unavailable because the Docker Desktop Linux engine cannot be reached.
+Phase 1 HTTP introspection returned 200 with no GraphQL errors; its SDL
+definitions match the checked-in snapshot (declaration order ignored). No
+GraphQL operation signatures or object fields changed in Phase 1.
 
 ## 1. Query contract currently implemented
 
@@ -48,13 +50,11 @@ query Stations {
 }
 ```
 
-The query delegates to station service `/stations`. In an empty table that
-service returns one hard-coded station. Reservation creation does not update
-that listing's connector status. More seriously, `/stations` scans the same
-table used for reservation records and returns all scanned items as stations.
-Reservation items do not contain station fields, so after a reservation the
-resolver can fail or return invalid station data. The backend must separate or
-filter entity records before frontend availability can be trusted.
+The query delegates to station service `/stations`. The service retains the
+existing single demo station and connector catalog, but connector availability
+now comes from a persisted conditional connector-lock item. Reservation and
+lock records are no longer treated as station rows. The catalog itself is
+still hard-coded; no station-inventory management API is implemented.
 
 ### Telemetry
 
@@ -71,7 +71,10 @@ query Telemetry {
 ```
 
 The dispatch service currently returns a static sample with no timestamp,
-history window, or subscription.
+history window, or subscription when no persisted telemetry exists. After an
+activation, it returns the persisted simulated zero-power baseline; stopping
+an activation updates its telemetry state to `stopped` and power to zero.
+These are simulated state records, not hardware measurements.
 
 ### Wallet
 
@@ -85,9 +88,12 @@ query Wallet($walletId: String!) {
 }
 ```
 
-The service creates a default wallet with balance `100.0` and currency `USD`
+The service creates a default wallet with balance `100.00` and currency `USD`
 when the requested wallet does not exist. This is demo seeding, not an
-authenticated account lifecycle.
+authenticated account lifecycle. Positive charges atomically decrement the
+balance and create the idempotency record in one DynamoDB transaction.
+Insufficient balance returns HTTP 402 to the gateway, which releases the
+reservation before reporting the SAGA as compensated.
 
 ### Flags
 
@@ -100,9 +106,16 @@ query FeatureFlags {
 }
 ```
 
-Currently returns `canaryCharge` from `FLAG_CANARY` and
-`chargerFaultSimulation` from `FLAG_FAULT`. There is no environment argument;
-values come from the gateway process environment.
+Returns the read-only official names
+`ENABLE_DYNAMIC_SURGE_PRICING`, `ENABLE_FAST_CHARGE_BOOST`, and
+`SIMULATE_CHARGER_HARDWARE_FAULT`. Values are boolean process configuration,
+default to `false`, and accept `true`/`false` (or `1`/`0`). Invalid values
+produce a GraphQL error rather than silently defaulting. Each gateway reads
+only its own process environment; there is no environment argument, persistent
+flag store, or flag mutation. The hardware-fault flag gates the existing
+per-request `chargeFault` test input. Surge-pricing and fast-charge flags are
+reported but have no pricing/boost effect until their business rules are
+approved and implemented.
 
 ### SAGA summaries
 
@@ -155,12 +168,19 @@ mutation ReserveAndActivateCharge(
 
 `ChargeResult.state` is a string, not an enum. A resolved mutation may report
 business failure in `success/state/message`; transport or GraphQL execution
-errors are separate. `idempotencyKey` is prefixed into a SAGA id but is not
-conditionally inserted and is not fingerprinted against request arguments.
-The same key with changed request data can return the prior SAGA.
+errors are separate. A SAGA is conditionally created by idempotency key and
+stores a canonical request fingerprint. A matching replay returns or resumes
+the same SAGA without repeating effective service effects; reusing the key
+with changed request data returns a GraphQL error. A 120-second conditional
+execution lease serializes ordinary concurrent requests and permits recovery
+after a worker stops; downstream operations are independently idempotent to
+protect any overlap at lease expiry and to support retry after uncertain
+transport outcomes.
 
-`chargeFault` is a direct per-request test hook. It is not backed by the
-`flags` query and must not be presented as an official persisted feature flag.
+The gateway persists SAGA step and compensation outcomes in an internal
+`events` list and preserves pending compensation state. The existing
+`retryCompensation(sagaId:)` operation only runs failed/incomplete
+compensation; it does not expose the event history in GraphQL.
 
 ### Retry compensation
 
@@ -178,9 +198,11 @@ mutation RetryCompensation($sagaId: String!) {
 }
 ```
 
-No retryability guard is enforced by the schema; frontend must only offer this
-to a record whose state is `COMPENSATION_FAILED`. Backend implementation should
-be hardened to validate eligibility before this action is considered safe.
+The gateway enforces retry eligibility and uses an execution lease. It resumes
+only `COMPENSATION_FAILED` work or stale `COMPENSATING` work; an already
+compensated SAGA is returned unchanged. Downstream refund and reservation
+release must each confirm their final status before the SAGA can be marked
+`COMPENSATED`.
 
 ## 3. Current GraphQL object models
 
@@ -206,16 +228,17 @@ These are not implemented operations and must not be called by the frontend:
 
 | Need | Current gap | Resolution owner |
 |---|---|---|
-| Official flags and independent values per `dev/test/prod` | Current names are `canaryCharge` / `chargerFaultSimulation`; process env values, no environment isolation or persistence | Backend + infrastructure |
+| Official flags and independent values per `dev/test/prod` | Exact official names are read from each gateway's process environment. Local Compose is dev only; separately deployed test/prod processes and tables are not provisioned here | Backend + infrastructure |
 | Change a feature flag | No mutation exists | Backend contract decision |
-| Valid connector availability | Reservation does not mutate connector inventory/state | Station service + backend |
+| Pricing/boost behavior | Flags are reported only; no approved surge formula or boost calculation is present | Product + backend |
+| Broader connector inventory | Conditional connector locks enforce availability for the current single-station catalog; no inventory management or broader catalog exists | Station service + backend |
 | SAGA detail and compensation timeline | Query exposes only summary and error | Gateway schema + SAGA persistence |
 | Search, filter, stable ordering, cursor pagination | `sagas` has no args and scans max 100 | Gateway query + DynamoDB access pattern |
 | Session end/stop | Dispatch REST stop exists; no GraphQL operation | Gateway contract |
 | Live updates | No subscription/WebSocket/SSE | Gateway and infrastructure |
 | Accurate multi-service environment health | dashboard only pings station service | Gateway |
 | Runtime endpoint isolation | One gateway process has `ENVIRONMENT`; no separate gateway instances are set up in Compose | Deployment/configuration |
-| Stable idempotency semantics | No conditional create or payload fingerprint/conflict response | Gateway and service owners |
+| Stable idempotency semantics | Gateway and service writes use conditional/idempotent records; operational recovery still depends on retrying the same key | Gateway and service owners |
 
 Do not implement speculative names such as `setFeatureFlag`, `saga(id:)`,
 `stopCharge`, or GraphQL subscriptions before backend approval and schema
@@ -250,12 +273,15 @@ or silently fall back to dev.
 | `reserveAndActivateCharge.chargeFault` nullability | Earlier operation example used `Boolean = false` | Argument is `Boolean! = false`; use a non-null Boolean variable with default false if declaring it |
 | Main operation type wrappers | Earlier type table focused on fields | See the SDL snapshot for exact list/object nullability, including `stations: [Station!]!` and nullable `Station.connectors: [Connector!]` |
 | Frontend current mutation | UI source appeared to supply `station` and `key` values | GraphQL validation reports `$station` and `$key` are not defined by the operation; this was verified against the actual Strawberry schema |
-| Flags resolver | Planning mentioned environment feature flags | HTTP query returns `canaryCharge=true` and `chargerFaultSimulation=false` with the gateway defaults; changing process env values changes the next query result |
+| Flags resolver | Earlier contract used `canaryCharge` and `chargerFaultSimulation` | Resolver returns the three official names from the gateway process environment; all default to false and malformed values cause a GraphQL error |
 
-`flags` is a read-only query. No mutation persists a flag. The current Compose
-configuration does not set `FLAG_CANARY` or `FLAG_FAULT`; the gateway defaults
-are therefore used. `chargeFault` is a separate per-mutation input and is
-forwarded to dispatch; it is not read from `chargerFaultSimulation`. The
-resolver reads the process environment when queried, but the GraphQL API has
-no way to change it; in normal operation a changed deployment environment
-requires restarting/replacing the gateway process.
+`flags` is read-only. Local Compose explicitly sets `ENVIRONMENT=dev` and
+defaults all three official flags to false; shell overrides can set the
+development values. Services derive their default table names from
+`ENVIRONMENT`, and reject configured table names that do not contain the
+active environment token. Independent test/prod deployments are not present
+in this repository and must provide separate gateway processes, service
+processes, tables, and flag environment values. Changing deployment
+configuration requires restarting/replacing the process. The existing
+`chargeFault` input only requests a simulated fault when
+`SIMULATE_CHARGER_HARDWARE_FAULT` is enabled.

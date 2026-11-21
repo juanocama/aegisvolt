@@ -59,53 +59,51 @@ sequenceDiagram
 ## 2. Current state and persistence
 
 Current SAGA records use the `id` partition key and contain `id`,
-`correlation_id`, `state`, per-step status fields, request identifiers/data,
-optional error, and optional fault flag. Gateway uses
-`saga_id = "saga-" + idempotency_key`, creates the SAGA record before remote
-calls, and writes state after successful steps.
+`correlation_id`, a request fingerprint, per-step status fields, request
+identifiers/data, errors, pending compensations, a bounded execution lease, and
+an `events` list. Gateway uses `saga_id = "saga-" + idempotency_key` and
+conditionally creates that item before remote calls. It persists each step
+transition and compensation outcome.
 
-State strings observed include `STARTED`, `RESERVATION_COMPLETED`,
-`CHARGE_COMPLETED`, `COMPLETED`, `FAILED`, `COMPENSATED`, and
-`COMPENSATION_FAILED`. These are strings, not a declared enum. The frontend
-must render returned values without assuming exhaustive enum coverage.
+State values are strings, not a declared enum. They include `STARTED`,
+`RESERVING`, `RESERVATION_COMPLETED`, `RESERVATION_UNCERTAIN`, `CHARGING`,
+`CHARGE_COMPLETED`, `CHARGE_UNCERTAIN`, `CHARGE_FAILED`, `ACTIVATING`,
+`ACTIVATION_UNCERTAIN`, `COMPENSATING`, `COMPENSATED`,
+`COMPENSATION_FAILED`, `COMPLETED`, and `FAILED`. The frontend must render
+returned values without assuming exhaustive enum coverage.
 
-## 3. Important implementation discrepancies
+## 3. Implemented correctness controls and remaining limits
 
-The following are correctness risks to resolve before relying on SAGA behavior:
+The backend now applies the following controls:
 
-1. **Business failure is misreported as fully compensated.** On charge HTTP
-   error, the gateway sets `COMPENSATED` before confirming cancellation
-   succeeded; it does not persist the outcome of cancellation failure safely.
-2. **Compensation ignores HTTP status.** `compensate()` calls synchronous
-   `httpx.post()` without `raise_for_status()`. A 4xx/5xx response can be
-   treated as a successful refund/release.
-3. **Potential duplicate side effects.** Gateway performs `get_saga` then
-   `put_item` without conditional write/transaction. Concurrent requests with
-   the same key can both execute. Same key with different payloads is not
-   rejected.
-4. **Billing is not atomic.** Wallet balance update and charge record are
-   separate DynamoDB writes; duplicate/concurrent debits and refunds can corrupt
-   the balance.
-5. **Reservation does not lock connector inventory.** Repeated reservations
-   can reserve the same connector, and the station listing remains unchanged.
-   In addition, the station service scans reservation items from the same
-   table as station records and may return them as invalid stations, causing
-   GraphQL station resolution to fail after a reservation.
-6. **Retry is not state-restricted.** `retryCompensation` calls compensation
-   even for completed or otherwise ineligible records.
-7. **Missing event log.** Per-step events, retry count, compensation outcome,
-   timestamps, and a durable resumable execution cursor are not exposed by the
-   GraphQL SAGA type.
-8. **Technical uncertainty is under-specified.** No durable lease/worker
-   recovery exists for gateway termination between remote success and local
-   persistence.
+1. **Conditional SAGA creation and request fingerprinting:** concurrent or
+   sequential requests using the same key share one SAGA; a changed payload is
+   rejected before downstream calls.
+2. **Service idempotency:** reservation, charge, refund, and activation records
+   are keyed by request identity. Wallet debit/charge and refund/ledger changes
+   use DynamoDB transactions. Connector locks use conditional writes with
+   recoverable `reserving`/`cancelling` states.
+3. **Uncertain outcomes:** gateway retries idempotent downstream POSTs once.
+   If the result remains uncertain, it persists an uncertain step state and
+   releases the lease; retrying the same GraphQL request resumes that step.
+4. **Compensation:** refund is confirmed before connector release; every
+   response status and body state is checked. Failed actions remain pending
+   and `COMPENSATION_FAILED`; retry is guarded and service idempotency prevents
+   duplicate refund/release effects.
+5. **Audit:** the SAGA item stores timestamps and per-step/compensation events.
+   These events are not exposed by the current GraphQL type.
 
-The frontend must not hide these limitations or claim strong idempotency.
+Remaining limits: gateway recovery is request-driven rather than a background
+worker; a client or operator must retry the same idempotency request after an
+uncertain forward step. The 120-second lease and event list are stored in one
+DynamoDB item; DynamoDB's 400 KB item ceiling limits long-lived retry history.
+Only one hard-coded station/connector is in the current inventory. The tested
+integration uses Moto and in-process ASGI; Docker/Floci and live AWS behavior
+remain unverified.
 
 ## 4. Target state model
 
-Recommended state machine for implementation (names should be finalized in a
-backend contract change):
+Implemented runtime state flow (all values are strings):
 
 ```text
 STARTED -> RESERVATION_COMPLETED -> CHARGE_COMPLETED -> COMPLETED
@@ -120,26 +118,23 @@ REJECTED       COMPENSATING <-------- COMPENSATING
                                       +--> COMPENSATING (eligible retry)
 ```
 
-Persist before and after each external side effect. Record step attempt,
-outcome, service response identifier, error classification, timestamps, and
-pending compensation order. Terminal states must be immutable except for
-audited administrative recovery.
+The gateway persists a step start before each external side effect and the
+confirmed/uncertain result afterward. `COMPENSATION_FAILED` and stale
+`COMPENSATING` states can be retried; terminal success/failure states are not
+re-run. The GraphQL model still returns only the summary status fields.
 
 ## 5. Idempotency and correlation requirements
 
 - Require a client-generated idempotency UUID per user intent.
 - Persist a canonical request fingerprint with conditional create.
-- Same key + same fingerprint returns the existing transaction/result without
-  duplicate effects.
-- Same key + different fingerprint returns a typed conflict.
+- Same key + same fingerprint returns the existing transaction or resumes an
+  uncertain step after the current execution lease is released/expired.
+- Same key + different fingerprint returns a GraphQL execution error.
 - Propagate one correlation id across gateway, all microservices, logs, and
-  SAGA records.
-- Service-side reserve, charge, refund, activate, release operations must be
-  individually idempotent; use conditional writes and atomic updates/transactions
-  where required.
-
-Current code does not guarantee these properties, despite returning a stable
-SAGA for sequential duplicate keys.
+  SAGA records. Structured cross-service logging is still incomplete.
+- Service-side reserve, charge, refund, activate, and release operations use
+  conditional/idempotent records. Billing uses atomic transactions and the
+  station lock uses conditional single-item writes with resumable state.
 
 ## 6. Frontend contract
 
@@ -149,9 +144,10 @@ and three step statuses plus error. Consequently, the first frontend pass can
 show a summary and returned state, but cannot truthfully show a timeline,
 compensation order, number of attempts, or individual refund/release outcomes.
 
-Retry control should be available only for `COMPENSATION_FAILED`; the backend
-must enforce this too. On a network timeout, the UI should retain and reuse the
-same idempotency key because the outcome may be unknown.
+Retry control should be available for `COMPENSATION_FAILED`; the backend
+enforces eligibility and returns already-compensated records without repeating
+effects. On a network timeout, the UI should retain and reuse the same
+idempotency key because the outcome may be unknown.
 
 ## 7. Verification scenarios
 
@@ -168,5 +164,9 @@ Backend tests should exercise:
 9. Duplicate key with changed input, returning conflict.
 10. Retry of a terminal/non-retryable SAGA, rejected without side effects.
 
-Current repository has a few mocked success/failure tests, but not all of these
-scenarios or real GraphQL contract tests.
+The Phase 1 suite covers successful GraphQL charging, insufficient balance,
+hardware activation failure, confirmed and failed compensation/retry,
+duplicate and concurrent SAGA requests, concurrent connector reservation,
+duplicate charge/refund, and a lost charge response followed by same-key
+recovery. Tests run against Moto-backed DynamoDB with the actual FastAPI apps
+and in-process ASGI routing; they are not Docker/Floci/AWS deployment tests.

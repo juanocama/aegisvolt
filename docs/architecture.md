@@ -28,12 +28,12 @@ services/
   station-reservation/        FastAPI; station listing and reservations
   billing-wallet/             FastAPI; wallet, debit, refund
   energy-dispatch/            FastAPI; activation and telemetry
-common/dynamodb.py            boto3 resource configuration
+common/                         DynamoDB, environment, and feature-flag helpers
 infra/                        Terraform bootstrap, root, and partial modules
 k8s/                          namespace, gateway deployment, canary ingress
 observability/prefect/        one health/SAGA-count flow
 scripts/                      canary health check and branch protection helper
-tests/                        SAGA unit-style tests and a compensation shape test
+tests/                        Moto-backed service and GraphQL integration tests
 ```
 
 The tracked source inventory and existing documentation are summarized in
@@ -62,17 +62,21 @@ environment. The frontend is started separately using Vite; it is not a
 Compose service.
 
 The only configured local GraphQL endpoint is
-`http://localhost:8000/graphql`, and the gateway's `ENVIRONMENT` defaults to
-`dev` because Compose does not set it. Test and prod GraphQL endpoints are not
-configured. The frontend's current test/prod defaults target the billing and
-dispatch REST ports and must not be used. The existing Vite `/graphql` proxy
-can reach the dev gateway when the client uses a relative URL.
+`http://localhost:8000/graphql`; local Compose explicitly configures
+`ENVIRONMENT=dev` and `aegisvolt-dev-*` tables. Test and prod GraphQL endpoints
+are not configured. The frontend's current test/prod defaults target the
+billing and dispatch REST ports and must not be used. The existing Vite
+`/graphql` proxy can reach the dev gateway when the client uses a relative URL.
 
-The gateway reports `canaryCharge` from process variable `FLAG_CANARY`
-(default `true`) and `chargerFaultSimulation` from `FLAG_FAULT` (default
-`false`). They are read-only and not stored per environment. They are distinct
-from the mutation's direct `chargeFault` simulation input. The official
-environment-scoped flags are not implemented.
+The gateway reports the official read-only flags
+`ENABLE_DYNAMIC_SURGE_PRICING`, `ENABLE_FAST_CHARGE_BOOST`, and
+`SIMULATE_CHARGER_HARDWARE_FAULT`. Values are process environment variables,
+default false, and are not persisted or mutable through GraphQL. Each service
+derives its default table name from `ENVIRONMENT` and rejects a configured
+table name without that environment token. Separate test/prod deployments are
+not provisioned here. The hardware fault flag gates the existing
+per-request `chargeFault` test input; surge pricing and fast-charge boost do
+not yet change business behavior because their rules are unspecified.
 
 ### Request path
 
@@ -90,10 +94,10 @@ environment-scoped flags are not implemented.
 |---|---|---|
 | React UI | Renders stations, wallet, flags, reserve action, and SAGA rows; polls every 3 seconds | Single screen; no responsive rules; mutation variables do not match the declared GraphQL variables |
 | GraphQL gateway | Aggregates reads and orchestrates reserve -> debit -> activate | Flags are environment variables, not DynamoDB-managed flags; no flag write, station detail, SAGA detail, or stop-charge GraphQL operation |
-| Station service | Returns a station list and creates/cancels reservation records | Fallback station is hard-coded; reservation does not update connector availability |
-| Billing service | Returns or seeds a wallet, creates charges, refunds | Debit, charge record, and refund are not atomic/fully idempotent |
-| Dispatch service | Activates/stops and returns telemetry | Telemetry is static sample data; no timestamped/history contract |
-| DynamoDB helper | Builds a boto3 resource from AWS/Floci environment variables | Startup code catches any table-load exception and may try table creation, masking non-not-found causes |
+| Station service | Returns the demo catalog and creates/cancels reservations | Conditional connector lock and recoverable `reserving`/`cancelling` states; catalog remains hard-coded |
+| Billing service | Seeds a demo wallet and manages charges/refunds | Conditional idempotency records and DynamoDB transactions keep wallet balance and charge/refund effects atomic |
+| Dispatch service | Activates/stops and returns telemetry | Activation and initial telemetry are persisted together; telemetry values are a zeroed simulated baseline, not hardware measurements |
+| DynamoDB helper | Builds boto3 resource/client from AWS/Floci configuration and ensures tables | Environment token is required in table names; live AWS/Floci operation is unverified |
 | Terraform | Declares partial network, DynamoDB, observability, API Gateway, ECR, and EKS resources | Network module only creates public subnets; API Gateway has no integration; no VPC endpoints; backend configs are not validated |
 | Kubernetes | Gateway stable/canary Deployment and weighted Ingress | Only the gateway is templated; deployment script checks health/restarts, not traffic, CloudWatch error thresholds, or alarm state |
 | Prefect | Gateway health check, SAGA count metrics | No three-environment health matrix, orphan detection, or consistency audit |
@@ -129,7 +133,10 @@ The current Terraform is a partial scaffold, not this complete topology:
 - `infra/modules/eks_ecr` has an EKS cluster and ECR repositories but lacks a
   node group and workload integration.
 - `infra/modules/dynamodb` creates tables with a single `id` key; it does not
-  yet model all documented service/environment requirements or feature flags.
+  yet model all documented service/environment requirements. It declares a
+  feature-flags table, but application code intentionally does not use it:
+  flags are read-only process configuration pending an approved control-plane
+  design.
 - `infra/modules/observability` creates one log group and SNS topic, not
   service/environment log groups, structured correlation fields, alarms, or
   dashboards.

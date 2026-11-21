@@ -1,79 +1,70 @@
 # Current Task
 
-**Status:** Phase 0 baseline verification complete to the extent the
-environment allowed; full Compose startup is blocked. Phase 1 is paused
-pending explicit user approval.  
+**Status:** Phase 1 backend correctness changes and tests are complete within
+the available local verification boundary. Await explicit user approval before
+starting Phase 2, deployment work, or frontend implementation.  
 **Last updated:** 2026-11-20.
 
-## Completed in this task
+## Phase 1 implementation
 
-- Inventoried repository source and documentation, excluding generated
-  dependencies/caches.
-- Inspected current frontend and actual Strawberry schema/resolvers plus domain
-  services, tests, Compose, workflows, Terraform, Kubernetes, Prefect, and
-  existing docs.
-- Compared requirements against actual implementation and documented
-  discrepancies.
-- Added the requested planning, contract, coordination, traceability, and
-  copy-ready frontend-agent documents.
-- Ran `python -m pytest -q`: 5 passed, 22 warnings.
-- Validated Compose syntax with `docker compose config --quiet`.
-- Docker engine was unavailable; Compose stack startup and readiness could not
-  be tested.
-- `docker compose up --build -d` was attempted and failed because Docker could
-  not connect to `//./pipe/dockerDesktopLinuxEngine`; no containers started.
-- Queried actual gateway GraphQL introspection over HTTP using temporary
-  Uvicorn + Moto; saved SDL to `docs/graphql/schema.graphql`.
-- Verified flags query output and validated the current frontend mutation
-  against the schema.
-- Did not modify application/frontend code or start Phase 1.
+- Station reservations now use persisted, conditional connector locks and
+  recoverable `reserving`/`cancelling` states. Replays are fingerprinted;
+  concurrent requests cannot take the same demo connector.
+- Wallet debits and charge records, and refunds and refund records, are
+  atomic DynamoDB transactions. Charge/refund idempotency is enforced and
+  insufficient balance returns HTTP 402.
+- Dispatch persists activation and initial telemetry together. Stop preserves
+  activation/telemetry state; hardware failures are persisted and return a
+  failure response.
+- SAGA creation is conditional and payload-fingerprinted. A 120-second lease,
+  persisted step/compensation events, same-key retry after uncertain
+  downstream responses, and state-guarded compensation retry are implemented.
+- Official feature-flag names are returned read-only from process environment
+  with false defaults. The hardware-fault request hook is gated by its flag.
+  Surge pricing and fast-charge boost are configuration-only until business
+  rules are approved.
+- GraphQL operation signatures remain unchanged. The SDL and contract docs
+  describe the updated resolver/service behavior and remaining gaps.
+- Frontend source, Terraform, AWS, and Kubernetes were not changed or run.
 
-## Baseline limitations
+## Verification
 
-- This directory is not a Git worktree (`.git` absent); Git cannot report a
-  clean/dirty status or distinguish earlier edits.
-- The temporary gateway test did not call Docker, Floci, or downstream
-  services. Full-stack startup remains unverified.
-- Only `dev` is available in local Compose. Test/prod isolation is absent.
-- Introspection identified one documentation correction:
-  `chargeFault` is `Boolean! = false`, not nullable Boolean. Current SDL is in
-  `docs/graphql/schema.graphql`.
-- The existing frontend mutation uses undeclared `$station` and `$key`
-  variables.
+- Before implementation: `python -m pytest -q` — **5 passed**.
+- After implementation: `python -m pytest -q` — **16 passed, 367 warnings**.
+- Coverage includes GraphQL/service success, insufficient funds, activation
+  failure, successful and failed compensation/retry, sequential/concurrent
+  duplicate SAGA calls, payload conflicts, concurrent connector reservations,
+  duplicate charges/refunds, dispatch stop/telemetry state, uncertain response
+  retry/recovery, official flag parsing, and environment table validation.
+- Tests use Moto-backed DynamoDB, actual FastAPI apps, and in-process ASGI
+  HTTP routing. They do not prove Docker/Floci/live AWS behavior.
+- `docker compose config --quiet` passed. Compose runtime was not started;
+  Phase 0 recorded that Docker could not connect to
+  `//./pipe/dockerDesktopLinuxEngine`.
+- No Terraform command/apply, AWS operation, Kubernetes deployment, or
+  frontend build was run.
+- No `.git` metadata exists, so Git cannot establish clean/dirty status.
 
-## Current user-facing decision
+## Remaining limitations and decisions
 
-Wait for user approval before implementing the next task. The next recommended
-task is:
+1. Local test/prod GraphQL gateways and stores are not configured. Separate
+   deployments must set `ENVIRONMENT`, environment-matching table names, and
+   flag values; only local dev Compose exists.
+2. No pricing formula or fast-charge boost behavior was found in the repository
+   or persisted reference files. The official DOCX was not available in those
+   locations; do not infer those behaviors.
+3. Flag values are read-only process configuration. No persistent flag store
+   or management mutation was added.
+4. SAGA recovery is retry-driven, not a background worker; event history is
+   kept on one DynamoDB item and is subject to the 400 KB item limit.
+5. The station catalog and default USD wallet remain demo scaffolding.
+   GraphQL amount/currency semantics need product approval.
+6. SAGA events are persisted internally but are not exposed in the GraphQL
+   type. Test/prod isolation and true telemetry remain unverified.
 
-> Stabilize the backend/GraphQL contract and correctness before frontend
-> implementation: fix SAGA/service invariants, decide environment isolation,
-> implement the required official feature-flag model, and version/test the
-> GraphQL schema. Keep work scoped to backend and tests.
+## Approval boundary
 
-The frontend prompt is ready at
-`prompts/frontend/FRONTEND_IMPLEMENTATION_PROMPT.md`. Do not launch it or begin
-frontend coding before approval and resolution of the critical contract
-decisions.
-
-## Blockers to frontend work
-
-1. Compose has one GraphQL gateway; frontend test/prod URLs are not configured.
-2. Frontend `.env.example` and GraphQL helper use different variable names.
-3. The current charge mutation in the UI is malformed and picks station rather
-   than connector id.
-4. Official flags are not exposed by the current backend contract.
-5. No flag update mutation, SAGA detail/event history, history pagination, or
-   GraphQL stop-session operation exists.
-6. Vite has a `/graphql` development proxy, but the client uses absolute
-   defaults that bypass it; gateway CORS is not configured for remote origins.
-7. Station service scans reservation items as stations and does not update
-   connector availability.
-
-## Verification boundary
-
-Phase 0 made documentation-only changes and a versioned SDL snapshot. It did
-not alter application behavior. The five passing tests do not establish that
-the Docker stack starts or that the current UI mutation works. No Terraform
-command/apply, AWS operation, Kubernetes deployment, or frontend change was
-performed.
+Phase 1 is stopped here. The next suggested task is to review/approve the
+remaining pricing/boost rules, environment topology, amount/currency rules,
+and SAGA history scope. Only after approval should Phase 2 contract work or
+frontend implementation begin.

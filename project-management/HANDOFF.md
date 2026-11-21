@@ -1,76 +1,73 @@
 # AegisVolt Handoff
 
 **Handoff date:** 2026-11-20  
-**Current state:** Phase 0 verification and contract snapshot completed;
-Phase 1 implementation is paused for user approval.
+**Current state:** Authorized Phase 1 backend correctness work is complete
+within the available verification boundary. Stop here and wait for explicit
+approval before beginning Phase 2, frontend, or deployment work.
 
-## What exists
+## Phase 1 delivered
 
-- Working source for React/Vite, FastAPI + Strawberry gateway, three
-  microservices, DynamoDB access, Terraform scaffold, a gateway Kubernetes
-  stable/canary example, Prefect flow, workflows, and a small Python test suite.
-- Existing setup/architecture/defense/decision/reference notes.
-- New detailed frontend specification, architecture, GraphQL contract, SAGA
-  design, requirement traceability, reference analysis, roadmap, project
-  coordination, and agent protocol documents.
-- Copy-and-paste frontend task prompt:
-  `prompts/frontend/FRONTEND_IMPLEMENTATION_PROMPT.md`.
-- Introspected SDL snapshot: `docs/graphql/schema.graphql`.
+- Station reservations use conditional connector locks, persisted
+  `reserving`/`reserved` and `cancelling`/`cancelled` transitions, and
+  idempotent retry behavior.
+- Wallet charge and refund effects are DynamoDB transactions with
+  idempotency; insufficient balance is an explicit HTTP 402 response.
+- Dispatch activation/failure and simulated telemetry state are persisted;
+  activation and initial telemetry are written atomically, and stop updates
+  both records.
+- Gateway SAGA records are conditionally created and request-fingerprinted.
+  Execution leases, same-key uncertain-outcome recovery, downstream response
+  checks, pending compensation, and guarded retry are implemented.
+- Official flag names are read-only process values, default false. Hardware
+  fault injection is gated by `SIMULATE_CHARGER_HARDWARE_FAULT`. No surge
+  pricing or fast-charge boost rules were invented.
+- GraphQL operation signatures and fields remain unchanged. Current HTTP
+  introspection returned 200 without errors; the SDL matches the checked-in
+  snapshot apart from declaration order.
+- No frontend source, Terraform, AWS, or Kubernetes files were modified.
 
-## Main findings
+## Verification evidence
 
-- UI is one page and only partially covers official minimums.
-- The reserve mutation in the UI is malformed: `$station` and `$key` are used
-  but not declared, and the chosen id is a station while connector is fixed to
-  `c-1`.
-- Frontend has no telemetry panel, complete async states, responsive styles, or
-  browser/component tests.
-- Only one GraphQL gateway is available in Compose; test/prod client defaults
-  point at REST service ports, and backend flags are not environment-isolated.
-  Vite has a local `/graphql` proxy, but the current client bypasses it with
-  absolute URLs; gateway CORS is not configured for remote origins.
-- `docker compose config --quiet` passed, but the Docker engine was unavailable
-  and no Compose container was started. Do not claim a full-stack local run.
-- Python 3.12.10 tests: 5 passed, 22 deprecation warnings.
-- The directory has no `.git` metadata, so `git status` cannot establish a
-  clean worktree or enumerate prior uncommitted edits.
-- Introspection via temporary Uvicorn + Moto returned HTTP 200 without GraphQL
-  errors. A current frontend mutation validation error reported undefined
-  `$station` and `$key`.
-- Official feature flags, details/pagination for SAGA history, and a stop
-  session operation are absent.
-- SAGA/service correctness, Terraform network/private API, K8s service
-  deployments, Prefect coverage, and CI promotion are all partial; see the
-  traceability matrix.
-- The reference archive has no clear license file; analysis recommends
-  architectural inspiration only.
+- Baseline before Phase 1: `python -m pytest -q` — **5 passed**.
+- Final Phase 1: `python -m pytest -q` — **16 passed, 367 warnings**.
+  Tests use Moto-backed DynamoDB, actual FastAPI/Strawberry apps, and
+  in-process ASGI routing; they are not Docker/Floci/live AWS tests.
+- `docker compose config --quiet` — passed.
+- Compose was not started. The Phase 0 attempt was blocked by the unavailable
+  Docker Desktop Linux engine at `//./pipe/dockerDesktopLinuxEngine`.
+- No Terraform, AWS, or Kubernetes operations were run.
+- No `.git` metadata exists in this project folder, so working-tree changes
+  cannot be independently established.
+
+## Environment and contract status
+
+- Compose configures only local `dev` (`8000/graphql` gateway; `8001-8003`
+  domain-service REST ports; Floci `4566`). Test/prod GraphQL gateways and
+  data stores are unavailable.
+- Service table defaults derive from `ENVIRONMENT`; explicitly configured
+  names must include that environment token. This is a fail-closed naming
+  safeguard, not proof that deployments are isolated.
+- Feature flags are process-level, read-only, and require process
+  configuration/restart. No persistent flag store or GraphQL mutation exists.
+- SAGA recovery requires a client/operator retry; there is no background
+  worker. SAGA event history is stored inside one DynamoDB item and is subject
+  to its 400 KB item ceiling.
+- The station catalog and default USD wallet remain demo scaffolding.
+  GraphQL `amount` is still a Float; currency/pricing semantics need approval.
+- The course DOCX was not found inside the repository or persisted reference
+  files; no unspecified surge/boost behavior was inferred.
 
 ## Recommended next task (not started)
 
-With explicit user approval, begin Phase 1 backend contract and correctness
-work. First decisions needed:
+Review and approve the remaining product and topology decisions recorded in
+`DECISIONS_LOG.md`, especially:
 
-1. Define how environment endpoints/data are isolated and whether test/prod are
-   local, remote, or not part of local demo.
-2. Confirm how the required official flags are stored and whether UI writes are
-   permitted.
-3. Confirm charge amount/currency semantics and acceptable SAGA history scope.
+1. Whether test/prod environments will be unavailable locally or provisioned
+   as separately isolated GraphQL gateways and data stores.
+2. Whether flags remain read-only process configuration or require a
+   persistent control plane/UI mutation.
+3. Surge-pricing and fast-charge boost semantics.
+4. Charge amount/currency rules and demo wallet lifecycle.
+5. Whether SAGA event details/pagination are needed in GraphQL.
 
-Then remediate station locking/data filtering, atomic/idempotent billing,
-compensation HTTP/status handling, retry eligibility, and SAGA duplicate-key
-behavior. Version/test the resulting schema. Do not begin frontend work until
-the contract and environment decisions are approved.
-
-Then implement the frontend using the standalone prompt and actual approved
-schema.
-
-## Do not assume
-
-- Terraform declarations are applied or valid.
-- AWS or Floci is running.
-- Three isolated GraphQL endpoints exist.
-- The current frontend's charge flow works.
-- Existing tests cover browser behavior or all compensation cases.
-- Any code in the example ZIP is licensed for copying.
-
-Wait for the user to approve Phase 1.
+After review, explicitly authorize the next phase. Do not start it automatically.

@@ -45,7 +45,9 @@ mutation {
 }
 ```
 
-The gateway currently reports `canaryCharge` (`FLAG_CANARY`, default `true`)
-and `chargerFaultSimulation` (`FLAG_FAULT`, default `false`) from its process
-environment. They are read-only and are not the official persisted,
-environment-isolated project flags. Local Compose provides only `dev`.
+The gateway reports the read-only official flags
+`ENABLE_DYNAMIC_SURGE_PRICING`, `ENABLE_FAST_CHARGE_BOOST`, and
+`SIMULATE_CHARGER_HARDWARE_FAULT` from its process environment; all default to
+`false`. Only the hardware-fault flag currently gates the existing
+per-request fault-injection input. Local Compose provides only `dev`; the
+pricing and boost flags have no business effect until their rules are approved.

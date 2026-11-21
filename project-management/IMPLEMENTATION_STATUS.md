@@ -40,14 +40,14 @@ target environment.
 |---|---|---|
 | FastAPI services for station, billing, dispatch | Present | `services/*/app.py` |
 | Strawberry GraphQL gateway | Present | `gateway/app.py` |
-| SAGA forward order | Partial | Reserve -> charge -> activate exists |
-| Compensation | Partial | Refund/release called but response status ignored; business paths can claim success early |
-| Sequential idempotent replay | Partial | SAGA lookup by prefixed key; no conditional create, request fingerprint, or concurrent safety |
-| Station availability lock | Missing | Reservations do not change connector state; station fallback is static |
-| Atomic wallet/ledger effects | Missing | Debit and charge/refund writes are separate |
-| Official environment feature flags | Missing | Current `flags` reads process env, with different names; no mutation |
-| SAGA detail/event history | Missing | Only summary fields in GraphQL |
-| True telemetry/history | Missing | Dispatch returns static sample without timestamp |
+| SAGA forward order | Present with limits | Reserve -> debit -> activate; persisted step state and same-key resume after uncertain outcomes |
+| Compensation | Present with limits | Refund then release; checks downstream status; incomplete work remains retryable |
+| Idempotency | Present with limits | Conditional SAGA create, payload fingerprint, execution lease, and service idempotency |
+| Station availability lock | Present for demo catalog | Conditional connector lock and recoverable reservation/release states; inventory remains one hard-coded station/connector |
+| Atomic wallet/ledger effects | Present | Wallet balance and charge/refund records use DynamoDB transactions; duplicate refunds are idempotent |
+| Official environment feature flags | Partial | Three official names are read-only process values; hardware fault injection is gated; pricing/boost behavior is not implemented |
+| SAGA detail/event history | Partial | Steps and compensation events persist on SAGA item; current GraphQL type exposes summary only |
+| Telemetry | Partial | Activation and baseline telemetry persist together, and stop updates both; no hardware measurements or history contract |
 | GraphQL live updates | Missing | No subscriptions/SSE/WebSocket |
 | GraphQL CORS | Missing/unverified | No gateway middleware found |
 
@@ -65,7 +65,7 @@ Exact operation list and contract gaps: `docs/GRAPHQL_CONTRACTS.md`.
 | PR CI | Partial | pytest, frontend build, Terraform fmt/init/validate, Compose config; no integration/E2E/plan/lint pipeline |
 | Environment promotion | Missing/partial | Push-based jobs do not enforce linear PR promotion and conditions require review |
 | Branch protection helper | Partial | Script only prints a suggested GitHub command; it does not configure protection |
-| Tests | Partial | SAGA mocked tests and one shape assertion; no real GraphQL HTTP, service integration, browser E2E |
+| Tests | Partial | Moto-backed service + GraphQL HTTP integration tests; no Docker/Floci/live AWS or browser E2E |
 | AWS deployment | Not claimed | No evidence resources have been applied; Terraform was unavailable in earlier validation |
 
 ## Phase 0 baseline verification (2026-11-20)
@@ -88,13 +88,35 @@ startup table. They did not validate Docker networking, Floci, or calls to the
 three downstream services. The SDL and contract document distinguish this
 limited verification from a full local deployment.
 
+## Phase 1 backend correctness verification (2026-11-20)
+
+| Check | Exact result |
+|---|---|
+| Pre-change baseline | `python -m pytest -q`: 5 passed, 22 deprecation warnings. |
+| Full post-change suite | `python -m pytest -q`: **16 passed, 367 warnings**, exit 0. |
+| GraphQL and service integration | Tests use the actual Strawberry/FastAPI apps and route HTTP calls through in-process ASGI transports; DynamoDB operations use Moto. This is not Docker, Floci, or live AWS verification. |
+| Compose syntax | `docker compose config --quiet`: passed after adding `ENVIRONMENT=dev` and official flag variables. |
+| Compose runtime | Not started in Phase 1; the Phase 0 attempt was blocked by the unavailable Docker Desktop Linux engine. |
+| Frontend | No frontend source was modified. The existing frontend mutation/configuration gaps remain. |
+| Infrastructure | No Terraform, AWS, or Kubernetes operation was run. |
+
+The 16 tests cover full charging, insufficient balance, gated hardware-fault
+compensation, failed compensation and retry, sequential/concurrent duplicate
+SAGA requests, changed-payload conflict, concurrent connector reservations,
+charge/refund idempotency, dispatch stop/telemetry state, lost charge responses
+with same-key recovery, official flag values/validation, and environment table
+isolation checks. The 367 warnings are deprecations from botocore UTC time,
+Starlette/AnyIO, the existing FastAPI `on_event` startup hooks, and the
+pytest-asyncio fixture-loop-scope configuration.
+
 ## Environment and flags verified
 
 - Compose has only one GraphQL gateway (`8000/graphql`) and the three REST
   service ports (`8001` station, `8002` billing, `8003` dispatch); Floci is
   `4566`. No test/prod GraphQL endpoint is configured.
-- The gateway defaults `ENVIRONMENT` to `dev`; Compose does not set it.
-  Compose table names are all dev. The three Terraform `.tfvars` files are
+- Each service defaults `ENVIRONMENT` to `dev`; Compose explicitly sets `dev`
+  and uses dev table names. Default table names derive from that environment;
+  configured names are rejected unless they contain its exact token. The three Terraform `.tfvars` files are
   identical and the three backend HCL files contain `CHANGE_ME` bucket names.
   None demonstrates working test/prod isolation.
 - Frontend source points at ports 8002/8003 as GraphQL defaults, which is
@@ -102,11 +124,29 @@ limited verification from a full local deployment.
   reads `VITE_GRAPHQL_DEV_URL`, `VITE_GRAPHQL_TEST_URL`, and
   `VITE_GRAPHQL_PROD_URL`. Vite's relative `/graphql` proxy targets the local
   gateway but the helper's absolute default bypasses it.
-- The gateway exposes read-only `canaryCharge` (`FLAG_CANARY`, default true)
-  and `chargerFaultSimulation` (`FLAG_FAULT`, default false). Compose sets
-  neither variable. No official flag names, persistence, or per-environment
-  isolation is implemented. `chargeFault` is a separate per-request mutation
-  input.
+- The gateway exposes `ENABLE_DYNAMIC_SURGE_PRICING`,
+  `ENABLE_FAST_CHARGE_BOOST`, and `SIMULATE_CHARGER_HARDWARE_FAULT` as
+  read-only process configuration, all false by default. Local Compose passes
+  these values to the dev gateway. Hardware fault injection requires both the
+  flag and the existing per-request `chargeFault` input. Pricing/boost
+  behavior and persistent flag management are not implemented.
+
+## Phase 1 limitations requiring follow-up
+
+- The course DOCX was not found inside the repository or persisted reference
+  files during this phase. The exact official flag names came from the
+  user-authorized task; no surge formula or boost rules were inferred.
+- Local test/prod GraphQL gateways and data stores remain unavailable. Runtime
+  separation depends on deployments setting distinct environment variables
+  and tables; only the dev Compose configuration exists.
+- SAGA recovery is retry-driven, not a background worker. Its execution lease
+  is 120 seconds and its event list shares the DynamoDB item, which is subject
+  to DynamoDB's 400 KB item limit.
+- The station catalog and wallet initialization remain demo scaffolding.
+  GraphQL `amount` is still a Float and billing remains USD; pricing and
+  currency semantics need an approved contract.
+- `FeatureFlag` returns process configuration but does not indicate whether a
+  configured surge/boost behavior has a corresponding implementation.
 
 ## Existing files inventory
 

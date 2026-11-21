@@ -92,9 +92,10 @@ generate a new key just to retry the same intent. Block duplicate submissions
 while one is in progress.
 
 The current `chargeFault` argument is a per-request demonstration hook, not a
-stored feature flag. Expose it only as a clearly labeled developer/demo control
-in `dev` or `test`; never submit it in `prod`. Explain that the official
-environment-scoped fault flag is not yet available from the backend.
+stored feature flag. It can only trigger a simulated fault when
+`SIMULATE_CHARGER_HARDWARE_FAULT` is enabled in the gateway process. Keep it
+as a clearly labeled developer/demo control for local `dev`; never submit it
+to `prod`. The local stack has no separate test gateway.
 
 ### 3. SAGA history
 
@@ -110,14 +111,17 @@ read-only note for those unavailable features if needed.
 
 ### 4. Feature flags
 
-Render `flags { name enabled }` in a read-only list and explain the current
-backend names `canaryCharge` and `chargerFaultSimulation`.
+Render `flags { name enabled }` in a read-only list. The backend returns
+`ENABLE_DYNAMIC_SURGE_PRICING`, `ENABLE_FAST_CHARGE_BOOST`, and
+`SIMULATE_CHARGER_HARDWARE_FAULT`, read from process environment and defaulting
+to false.
 
 Do not show toggles, optimistic flag updates, or call a guessed
-`setFeatureFlag` mutation. The official required flags
-`ENABLE_DYNAMIC_SURGE_PRICING`, `ENABLE_FAST_CHARGE_BOOST`, and
-`SIMULATE_CHARGER_HARDWARE_FAULT` are not currently exposed. Label official
-flag management/environment isolation as pending backend contract support.
+`setFeatureFlag` mutation. Values are read-only and process-level; local
+Compose provides only `dev`, and there is no persistent flag store or
+management API. The surge-pricing and fast-charge flags are visible but have
+no business effect until their rules are approved. Do not represent a selected
+frontend environment as isolated unless a real separate endpoint is configured.
 
 ## Exact supported GraphQL operations
 

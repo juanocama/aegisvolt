@@ -1,8 +1,33 @@
-import sys
-from pathlib import Path
-sys.path.insert(0,str(Path(__file__).parents[1]))
+import uuid
 
-def test_state_model_shape():
-    saga={"state":"COMPENSATION_FAILED","reservation_status":"compensating","charge_status":"compensating","error":"timeout"}
-    assert saga["state"]=="COMPENSATION_FAILED"
-    assert saga["reservation_status"]=="compensating"
+from fastapi.testclient import TestClient
+
+
+def test_retry_compensation_rejects_non_failed_saga(backend):
+    gateway = backend["gateway"]
+    saga_id = f"saga-{uuid.uuid4()}"
+    gateway.saga_table.put_item(
+        Item={
+            "id": saga_id,
+            "correlation_id": "test-correlation",
+            "state": "COMPLETED",
+            "reservation_status": "reserved",
+            "charge_status": "charged",
+            "activation_status": "active",
+        }
+    )
+
+    with TestClient(gateway.app) as client:
+        response = client.post(
+            "/graphql",
+            json={
+                "query": (
+                    "mutation Retry($sagaId: String!) { "
+                    "retryCompensation(sagaId: $sagaId) { id state } }"
+                ),
+                "variables": {"sagaId": saga_id},
+            },
+        ).json()
+
+    assert response.get("errors")
+    assert gateway.get_saga(saga_id)["state"] == "COMPLETED"

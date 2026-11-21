@@ -20,7 +20,8 @@ is in [project-management/IMPLEMENTATION_STATUS.md](./project-management/IMPLEME
 Python tests and GraphQL introspection passed; Compose configuration parses,
 but full startup is blocked by Docker Desktop's unavailable Linux engine. The
 project directory has no Git metadata, so clean/dirty status is unavailable.
-Phase 1 requires user approval.
+Phase 1 was subsequently authorized and is now complete within the test/runtime
+boundary described below.
 
 - `python -m pytest -q`: 5 passed (22 deprecation warnings).
 - `docker compose config --quiet`: passed.
@@ -30,33 +31,39 @@ Phase 1 requires user approval.
   errors; SDL saved to `docs/graphql/schema.graphql`.
 - Current frontend charge mutation validation found undeclared `$station` and
   `$key`.
-- Record and resolve the remaining contract/environment decisions before
-  starting Phase 1.
-- Decide how local `dev` works and how `test`/`prod` endpoints are provisioned;
-  fail closed when unavailable.
-- Decide feature-flag storage/names and whether the frontend may change flags.
-- Resolve the backend/runtime issues recorded in
-  `project-management/IMPLEMENTATION_STATUS.md`; no Phase 1 code changes have
-  been made.
+- The backend correctness phase was separately authorized; see Phase 1 below.
 
 **Exit gate:** backend operation signatures, result/error semantics, environment
 identity, and allowed UI actions are approved and tested.
 
 ## Phase 1 — Backend business correctness
 
-- Enforce connector availability and durable reservation state.
-- Make billing debit/refund atomic and idempotent.
-- Add SAGA conditional create, request fingerprint conflict, durable step/event
-  records, and safe retry eligibility.
-- Correct compensation HTTP status handling and preserve incomplete
-  compensations.
-- Add environment-scoped official feature flags.
-- Add accurate health aggregation and telemetry freshness semantics.
-- Add backend tests for business failure, technical uncertainty, concurrent
-  replay, and compensation failure.
+**Status:** completed for the authorized scope (2026-11-20). `python -m
+pytest -q` reports 16 passed, 367 deprecation warnings. Phase 1 HTTP
+introspection returned 200 with no GraphQL errors; SDL definitions match
+`docs/graphql/schema.graphql` ignoring declaration order. `docker compose
+config --quiet` passed, but Compose was not started; Docker Desktop's Linux
+engine remains unavailable. No frontend or infrastructure deployment work was
+performed. See
+`project-management/IMPLEMENTATION_STATUS.md` for exact evidence.
 
-**Exit gate:** unit + service integration + GraphQL HTTP tests demonstrate all
-SAGA paths without mock-only assertions.
+Implemented and tested:
+
+- Conditional connector locking and recoverable reservation/release states.
+- Atomic, idempotent wallet debit/refund transactions.
+- Conditional SAGA creation, request fingerprinting, leases, uncertain-step
+  retry, persisted compensation state, and downstream status checks.
+- Official read-only flag names and fault-injection gating.
+- The required Phase 1 service/GraphQL scenarios listed in
+  `project-management/IMPLEMENTATION_STATUS.md`.
+
+Not completed or not verifiable in Phase 1: surge/boost business behavior
+(rules were not available), persistent flag control, background SAGA recovery,
+multi-service health aggregation, telemetry freshness/history, production
+station inventory, test/prod runtime, and Docker/Floci/live AWS verification.
+
+**Approval boundary:** Phase 1 is stopped. Do not start Phase 2, frontend, or
+deployment work until the user explicitly approves the next task.
 
 ## Phase 2 — GraphQL contract and integration tests
 

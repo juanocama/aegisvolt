@@ -53,10 +53,19 @@ Ensure Docker Desktop is running with its Linux engine, then from the project
 root:
 
 ```powershell
+# All flags default to false; set only the values needed for this dev session.
+$env:ENABLE_DYNAMIC_SURGE_PRICING = 'false'
+$env:ENABLE_FAST_CHARGE_BOOST = 'false'
+$env:SIMULATE_CHARGER_HARDWARE_FAULT = 'false'
 docker compose config --quiet
 docker compose up --build -d
 docker compose ps
 ```
+
+Compose passes these official process-scoped values to the dev gateway. The
+hardware-fault flag must be true as well as `chargeFault: true` to inject a
+hardware failure. The pricing and boost flags currently report configuration
+only; they do not change charge amounts or dispatch power.
 
 The configuration's exact service readiness endpoints are:
 

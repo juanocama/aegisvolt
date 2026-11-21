@@ -1,12 +1,13 @@
 services:
   floci:
-    image: ghcr.io/hectorjsmith/floci:latest
+    image: floci/floci:latest
     ports: ["4566:4566"]
   station-reservation:
     build:
       context: .
       dockerfile: services/station-reservation/Dockerfile
     environment:
+      ENVIRONMENT: dev
       AWS_ENDPOINT_URL: http://floci:4566
       AWS_DEFAULT_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
@@ -19,6 +20,7 @@ services:
       context: .
       dockerfile: services/billing-wallet/Dockerfile
     environment:
+      ENVIRONMENT: dev
       AWS_ENDPOINT_URL: http://floci:4566
       AWS_DEFAULT_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
@@ -31,6 +33,7 @@ services:
       context: .
       dockerfile: services/energy-dispatch/Dockerfile
     environment:
+      ENVIRONMENT: dev
       AWS_ENDPOINT_URL: http://floci:4566
       AWS_DEFAULT_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
@@ -43,9 +46,13 @@ services:
       context: .
       dockerfile: gateway/Dockerfile
     environment:
+      ENVIRONMENT: dev
       STATION_URL: http://station-reservation:8001
       BILLING_URL: http://billing-wallet:8002
       DISPATCH_URL: http://energy-dispatch:8003
+      ENABLE_DYNAMIC_SURGE_PRICING: ${ENABLE_DYNAMIC_SURGE_PRICING:-false}
+      ENABLE_FAST_CHARGE_BOOST: ${ENABLE_FAST_CHARGE_BOOST:-false}
+      SIMULATE_CHARGER_HARDWARE_FAULT: ${SIMULATE_CHARGER_HARDWARE_FAULT:-false}
       AWS_ENDPOINT_URL: http://floci:4566
       AWS_DEFAULT_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
