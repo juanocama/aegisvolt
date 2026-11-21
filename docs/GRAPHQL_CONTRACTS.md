@@ -253,17 +253,15 @@ The helper in `frontend/src/graphql.ts` expects:
 - `VITE_GRAPHQL_TEST_URL`
 - `VITE_GRAPHQL_PROD_URL`
 
-`frontend/.env.example` currently contains `VITE_GRAPHQL_URL=/graphql`, which
-the helper does not read. The helper's compiled defaults are
-`http://localhost:8000/graphql`, `http://localhost:8002/graphql`, and
-`http://localhost:8003/graphql`. Only port 8000 is a GraphQL gateway in
-Compose; 8002 is billing REST and 8003 is dispatch REST. Test/prod GraphQL
-endpoints do not exist in the checked-in local setup and those defaults are
-unsafe. The current local dev endpoint is `http://localhost:8000/graphql`.
-Vite proxies relative `/graphql` to that gateway, but the helper's absolute
-default bypasses the proxy. The gateway has no CORS middleware, so direct
-remote endpoints require explicit CORS configuration. Future frontend
-configuration must fail closed for test/prod rather than use either REST port
+`frontend/.env.example` is aligned with the three named variables. The dev
+helper defaults to relative `/graphql`, which Vite proxies to the host gateway
+on `http://localhost:8010/graphql`; test and prod return unconfigured without
+a real URL. Port 8002 is billing REST and port 8003 is dispatch REST, and the
+helper rejects those ports if explicitly configured. Test/prod GraphQL
+endpoints do not exist in the checked-in local setup. The gateway has no CORS
+middleware, so remote/direct endpoints require explicit CORS configuration.
+Frontend configuration fails closed for test/prod rather than using a REST
+port
 or silently fall back to dev.
 
 ## 6. Verified discrepancies

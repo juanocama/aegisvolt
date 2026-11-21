@@ -22,17 +22,17 @@ target environment.
 | Capability | Status | Evidence / gap |
 |---|---|---|
 | React + TypeScript + Vite | Present | `frontend/` |
-| Overview, station list, wallet, flags, SAGA summary in one screen | Partial | `frontend/src/main.tsx`; no screen navigation; static/simple layout |
-| Environment selector | Partial | Buttons exist, but local stack has only one gateway; test/prod defaults point to service REST ports |
-| Station/connector selection | Partial | Selection is by station id, connector hard-coded as `c-1` |
-| Reservation/charge/activation form | Failing | GraphQL variables are undeclared in the operation; no request error state |
-| SAGA history and retry | Partial | Summary list exists; detail/events/compensation outcomes absent; retry errors not surfaced |
-| Feature-flag display | Partial | Read-only and not official flag names or independent stored environments |
-| Telemetry | Missing from UI | Gateway query exists but UI does not consume it |
-| Responsive/accessibility system | Missing/partial | No breakpoints, focus system, or complete semantic states |
-| Loading/empty/error/success/compensation states | Missing/partial | One message string; no robust per-query/per-mutation state |
-| Frontend tests | Missing | `npm test` exists but no frontend test source was found |
-| Vite/API CORS or proxy | Partial | Vite proxies relative `/graphql` to localhost:8000, but helper uses absolute URLs and bypasses it; gateway has no CORS middleware |
+| Overview, station list, wallet, flags, SAGA summary | Present | Four navigable screens, polling, loading/error/stale states, and responsive CSS |
+| Environment selector | Partial | Dev uses `/graphql` through Vite proxy on host 8010; test/prod fail closed because no real endpoints exist |
+| Station/connector selection | Present | Real station and connector IDs are selected; request is disabled for non-available connectors |
+| Reservation/charge/activation form | Present | Declares exact GraphQL variables, validates positive amount, preserves idempotency key after network uncertainty |
+| SAGA history and retry | Present with contract limits | Summary table and guarded `COMPENSATION_FAILED` retry; detail/timeline/pagination remain unavailable |
+| Feature-flag display | Present | Read-only official flag names and enabled/disabled values |
+| Telemetry | Present | Latest returned snapshot is labeled as non-historical |
+| Responsive/accessibility system | Present | Responsive breakpoints, focus styles, semantic labels, table scroll, status text, and reduced-motion handling |
+| Loading/empty/error/success/compensation states | Present | Dedicated query and mutation outcomes are surfaced; stale/error behavior remains per refresh |
+| Frontend tests | Present | Vitest tests cover environment fail-close behavior and GraphQL route guards |
+| Vite/API CORS or proxy | Present | Vite proxies relative `/graphql` to `http://localhost:8010/graphql`; no browser calls to REST service ports |
 
 ## Backend and GraphQL
 

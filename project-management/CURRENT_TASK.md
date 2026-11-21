@@ -1,8 +1,8 @@
 # Current Task
 
-**Status:** Phase 1 backend correctness changes and tests are complete within
-the available local verification boundary. Await explicit user approval before
-starting Phase 2, deployment work, or frontend implementation.  
+**Status:** Phase 1 backend correctness and the integrated frontend implementation
+are complete within the available local verification boundary. AWS/deployment
+work remains outside scope pending approval.  
 **Last updated:** 2026-11-20.
 
 ## Phase 1 implementation
@@ -25,7 +25,8 @@ starting Phase 2, deployment work, or frontend implementation.
   rules are approved.
 - GraphQL operation signatures remain unchanged. The SDL and contract docs
   describe the updated resolver/service behavior and remaining gaps.
-- Frontend source, Terraform, AWS, and Kubernetes were not changed or run.
+- The React/Vite frontend now has four screens and uses the real local GraphQL gateway.
+- Terraform, AWS, and Kubernetes were not changed or run.
 
 ## Verification
 
@@ -44,6 +45,19 @@ starting Phase 2, deployment work, or frontend implementation.
 - No Terraform command/apply, AWS operation, Kubernetes deployment, or
   frontend build was run.
 - No `.git` metadata exists, so Git cannot establish clean/dirty status.
+
+## Frontend verification
+
+- `npm run build`: passed; Vite production bundle generated.
+- `npm test`: 2 test files and 3 tests passed.
+- `npm run lint`: passed.
+- Vite dev server: running on `http://localhost:5173`.
+- Vite `/graphql` proxy: forwards to `http://localhost:8010/graphql`.
+- A real mutation through the proxy completed with state `COMPLETED`; wallet
+  changed from 100.00 to 75.00 USD, connector became `reserved`, and dispatch
+  telemetry became `active` in the local dev environment.
+- No Lovable or Lovable-specific branding/configuration remains in the
+  frontend source.
 
 ## Remaining limitations and decisions
 
@@ -64,7 +78,6 @@ starting Phase 2, deployment work, or frontend implementation.
 
 ## Approval boundary
 
-Phase 1 is stopped here. The next suggested task is to review/approve the
-remaining pricing/boost rules, environment topology, amount/currency rules,
-and SAGA history scope. Only after approval should Phase 2 contract work or
-frontend implementation begin.
+Frontend integration is complete for the current dev contract. Remaining work
+requires separate approval: test/prod gateways, surge/boost rules, persistent
+flag management, SAGA detail/pagination, infrastructure, and deployment.

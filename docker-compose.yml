@@ -58,5 +58,5 @@ services:
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       SAGA_TABLE: aegisvolt-dev-sagas
-    ports: ["8000:8000"]
+    ports: ["8010:8000"]
     depends_on: [station-reservation, billing-wallet, energy-dispatch]

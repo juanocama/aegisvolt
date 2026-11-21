@@ -43,7 +43,7 @@ path. The frontend GraphQL helper now reads
 while `.env.example` still documents the obsolete `VITE_GRAPHQL_URL`.
 Defaults for test/prod point at ports 8002/8003, which Compose uses for REST
 services, not GraphQL gateways. The gateway has no CORS middleware. Vite
-already proxies relative `/graphql` requests to `http://localhost:8000`, but
+already proxies relative `/graphql` requests to `http://localhost:8010`, but
 the current GraphQL helper's absolute default URLs bypass that proxy.
 
 `styles.css` has a three-column desktop grid but no media queries, focus
@@ -201,7 +201,7 @@ environment. The backend must report the same environment as selected before
 data is presented as belonging to it. Never reuse cached records across
 environments.
 
-The current local stack only supplies `http://localhost:8000/graphql`; local
+The current local stack only supplies `http://localhost:8010/graphql`; local
 test/prod gateways are not present. Vite's current environment variables are
 `VITE_GRAPHQL_DEV_URL`, `VITE_GRAPHQL_TEST_URL`, and
 `VITE_GRAPHQL_PROD_URL`; `.env.example` must be aligned by the future frontend

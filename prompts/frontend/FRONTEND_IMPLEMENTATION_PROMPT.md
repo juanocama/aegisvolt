@@ -7,18 +7,30 @@ self-contained and does not rely on prior conversation memory.
 
 ## Role and task
 
-You are a senior React/TypeScript engineer working in an existing AegisVolt
-repository at `C:\Users\iamju\Desktop\patrones\aegisvolt`.
+You are a senior React/TypeScript engineer implementing the AegisVolt operations-console frontend.
 
-Implement the AegisVolt operations-console frontend incrementally in the
-existing `frontend/` folder. This is **not** a greenfield rewrite. Preserve the
-current implementation and adapt it. Do not alter backend, infrastructure,
-Terraform, Kubernetes, or CI files in this frontend task. If a desired UI
-action needs an API that does not exist below, document the blocker and render
-that capability as read-only/unavailable; do not invent a GraphQL operation,
-mock production data, or call a service REST endpoint from the browser.
+This is an isolated frontend development task. The final frontend will be manually integrated into the official AegisVolt repository after review.
 
-Before editing, read:
+**Working directory:**
+`C:\Users\iamju\Desktop\patrones\aegisvolt-frontend-draft`
+
+Requirements:
+
+- Create the frontend in this separate directory.
+- Do not modify the original AegisVolt repository.
+- Do not overwrite, delete, or rename existing project files.
+- Use React, TypeScript, and Vite.
+- Preserve the architectural decisions and API contracts documented in the original project.
+- Do not modify backend, Gateway, Docker Compose, Terraform, Kubernetes, CI/CD, or observability files.
+- Keep the project structure clean and suitable for later manual integration.
+- Do not invent API operations, fields, business rules, or production data.
+- If an API capability is unavailable, document the limitation and represent it as read-only or unavailable.
+
+The original repository is available at:
+
+`C:\Users\iamju\Desktop\patrones\aegisvolt`
+
+Before implementation, inspect the following original project files if accessible:
 
 - `docs/FRONTEND_SPECIFICATION.md`
 - `docs/GRAPHQL_CONTRACTS.md`
@@ -28,9 +40,11 @@ Before editing, read:
 - `frontend/src/graphql.ts`
 - `frontend/package.json`
 
-Use the **actual current contract** in this prompt and
-`docs/GRAPHQL_CONTRACTS.md` as the limit of supported behavior. If the running
-schema differs, stop and report the exact mismatch rather than guessing.
+Use these files as architectural references. Do not modify them.
+
+If a reference file is missing or inaccessible, report it rather than inventing its contents.
+
+Use the actual GraphQL contract and the restrictions in this prompt as the limit of supported behavior. If the running schema differs, stop and report the exact mismatch rather than guessing.
 
 ## Product and visual direction
 
@@ -128,7 +142,7 @@ frontend environment as isolated unless a real separate endpoint is configured.
 Each configured environment URL must be the full GraphQL endpoint URL,
 including `/graphql`; pass it to `fetch` as-is and do not append the path a
 second time. Current local Compose exposes one GraphQL gateway at
-`http://localhost:8000/graphql`.
+`http://localhost:8010/graphql`.
 No separate local test/prod gateways exist.
 
 ### Dashboard
@@ -384,6 +398,36 @@ Required cases:
 
 Run build, lint, and tests; report exact commands/results. Do not fix backend
 failures in this task. Document them as blockers.
+
+## Independent frontend integration requirements
+
+The frontend must be designed for later integration into the official AegisVolt repository.
+
+Requirements:
+
+- Keep all frontend source code inside the independent working directory.
+- Do not create or modify files outside that directory.
+- Avoid absolute filesystem paths in application code.
+- Use environment variables for API endpoint configuration.
+- Include a complete `.env.example` without real credentials or secrets.
+- Include a README explaining installation, development, build, tests, and environment configuration.
+- Document all dependencies added and why they are needed.
+- Avoid unnecessary dependencies and do not introduce a new backend.
+- Do not include `node_modules`, build caches, or generated artifacts in the final source handoff.
+- Keep configuration compatible with the original React, TypeScript, and Vite architecture.
+- Clearly identify any files that will need merging or adaptation during manual integration.
+
+The final report must include:
+
+1. Complete frontend directory tree.
+2. Installation and execution commands.
+3. Environment variable configuration.
+4. GraphQL integration status.
+5. Dependencies added.
+6. Known limitations and unresolved backend contract mismatches.
+7. Exact build, lint, and test results.
+
+Do not copy the original frontend wholesale. Reuse its architectural conventions and implement the required improvements independently.
 
 ## Acceptance criteria
 

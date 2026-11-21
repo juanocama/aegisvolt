@@ -31,7 +31,7 @@ npm run build
 ```
 
 ## GraphQL
-Open `http://localhost:8000/graphql`. Example mutation:
+Open `http://localhost:8010/graphql`. Example mutation:
 
 ```graphql
 mutation {

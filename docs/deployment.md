@@ -11,7 +11,7 @@ the Compose stack was **not started** and container readiness is unverified.
 
 The local Compose configuration defines Floci (`4566`), station reservation
 (`8001`), billing wallet (`8002`), energy dispatch (`8003`), and the only
-GraphQL gateway (`8000`). The frontend is a separate Vite process (`5173`).
+GraphQL gateway (`8010` host port, `8000` container port). The frontend is a separate Vite process (`5173`).
 Compose has no health checks; `depends_on` does not wait for service
 readiness. The gateway's `ENVIRONMENT` defaults to `dev`, and Compose names
 its data tables with `dev`.
@@ -74,7 +74,7 @@ $healthUrls = @(
   'http://localhost:8001/health',
   'http://localhost:8002/health',
   'http://localhost:8003/health',
-  'http://localhost:8000/health'
+  'http://localhost:8010/openapi.json'
 )
 foreach ($url in $healthUrls) {
   $ready = $false
@@ -116,7 +116,7 @@ triggering a business mutation:
 
 ```powershell
 $body = @{ query = '{ flags { name enabled } }' } | ConvertTo-Json -Compress
-Invoke-RestMethod -Uri 'http://localhost:8000/graphql' `
+Invoke-RestMethod -Uri 'http://localhost:8010/graphql' `
   -Method Post -ContentType 'application/json' -Body $body
 ```
 
@@ -130,7 +130,7 @@ npm run dev
 ```
 
 Open `http://localhost:5173`. The Vite proxy forwards relative `/graphql`
-requests to `http://localhost:8000`.
+requests to `http://localhost:8010/graphql`.
 
 ### Run backend tests
 

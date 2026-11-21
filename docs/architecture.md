@@ -44,7 +44,7 @@ build output, Python bytecode, and pytest cache are not source-of-truth.
 
 ```mermaid
 flowchart LR
-  UI[React UI :5173] -->|HTTP GraphQL| GW[Strawberry gateway :8000/graphql]
+  UI[React UI :5173] -->|Vite /graphql proxy| GW[Strawberry gateway :8010 host / 8000 container]
   GW -->|REST| SR[station-reservation :8001]
   GW -->|REST| BW[billing-wallet :8002]
   GW -->|REST| ED[energy-dispatch :8003]
@@ -62,7 +62,7 @@ environment. The frontend is started separately using Vite; it is not a
 Compose service.
 
 The only configured local GraphQL endpoint is
-`http://localhost:8000/graphql`; local Compose explicitly configures
+`http://localhost:8010/graphql`; local Compose explicitly configures
 `ENVIRONMENT=dev` and `aegisvolt-dev-*` tables. Test and prod GraphQL endpoints
 are not configured. The frontend's current test/prod defaults target the
 billing and dispatch REST ports and must not be used. The existing Vite

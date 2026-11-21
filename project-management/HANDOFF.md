@@ -24,7 +24,9 @@ approval before beginning Phase 2, frontend, or deployment work.
 - GraphQL operation signatures and fields remain unchanged. Current HTTP
   introspection returned 200 without errors; the SDL matches the checked-in
   snapshot apart from declaration order.
-- No frontend source, Terraform, AWS, or Kubernetes files were modified.
+- The React/Vite frontend was integrated and tested. It does not call REST
+  service ports and uses only the documented GraphQL operations.
+- No Terraform, AWS, or Kubernetes files were modified.
 
 ## Verification evidence
 
