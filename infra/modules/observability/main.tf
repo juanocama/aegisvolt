@@ -1,6 +1,38 @@
-variable "prefix" { type = string }
-resource "aws_cloudwatch_log_group" "app" {
-  name              = "/aegisvolt/${var.prefix}"
-  retention_in_days = 14
+variable "prefix" {
+  type = string
 }
-resource "aws_sns_topic" "alerts" { name = "${var.prefix}-alerts" }
+
+variable "log_retention_days" {
+  type = number
+}
+
+locals {
+  application_services = toset([
+    "gateway",
+    "station-reservation",
+    "billing-wallet",
+    "energy-dispatch",
+  ])
+}
+
+resource "aws_cloudwatch_log_group" "app" {
+  for_each          = local.application_services
+  name              = "/aegisvolt/${var.prefix}/${each.key}"
+  retention_in_days = var.log_retention_days
+}
+
+resource "aws_cloudwatch_log_group" "cluster" {
+  name              = "/aws/eks/${var.prefix}-cluster/cluster"
+  retention_in_days = var.log_retention_days
+}
+
+resource "aws_sns_topic" "alerts" {
+  name = "${var.prefix}-alerts"
+}
+
+output "log_group_arns" {
+  value = merge(
+    { for name, group in aws_cloudwatch_log_group.app : name => "${group.arn}:*" },
+    { cluster = "${aws_cloudwatch_log_group.cluster.arn}:*" },
+  )
+}

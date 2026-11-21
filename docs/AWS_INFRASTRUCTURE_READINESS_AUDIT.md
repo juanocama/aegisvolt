@@ -159,3 +159,112 @@ Do not run init against current placeholder backend; apply or Kubernetes deploym
 - `terraform -chdir=infra validate` — passed.
 
 No apply, destroy, plan against a remote backend, workspace creation, AWS request, S3 bucket creation, DynamoDB table creation, VPC/EKS creation, or remote-state modification was performed.
+
+## Phase 2 AWS architecture status
+
+**Verification date:** 2026-11-21
+
+### Phase 2 implementation
+
+- `infra/modules/network/main.tf` now declares a configurable VPC, two or three
+  public/private subnet pairs, an Internet Gateway, public routing, private
+  routing, optional NAT gateways, and least-privilege HTTPS VPC-endpoint access.
+- Gateway endpoints are declared for S3 and DynamoDB. Interface endpoints are
+  declared for ECR API, ECR DKR, CloudWatch Logs, and STS. These endpoints
+  support private workloads without making application ports public.
+- NAT gateway creation defaults to disabled. One NAT gateway or one per AZ can
+  be enabled explicitly because it incurs hourly and data-processing charges.
+- `infra/modules/eks_ecr/main.tf` now declares:
+  - EKS control-plane and EC2 worker IAM roles.
+  - A private-subnet managed node group with configurable capacity and instance
+    type defaults.
+  - CoreDNS, kube-proxy, and VPC CNI add-ons.
+  - Private EKS API access and disabled public EKS API access.
+  - Cluster control-plane logging.
+  - An EKS OIDC provider and workload-identity IAM roles.
+  - Separate station, wallet, dispatch, and gateway IRSA roles.
+- DynamoDB declarations now contain only `stations`, `wallets`, `dispatch`, and
+  `sagas`. These match the four inspected application table contracts. The
+  unused `feature-flags`, `reservations`, and `billing` declarations were
+  removed.
+- DynamoDB tables remain on-demand, use partition key `id`, use AWS-managed
+  server-side encryption, and enable point-in-time recovery. Runtime table
+  creation is not granted by the workload policies.
+- Per-service CloudWatch log groups now cover gateway and all three FastAPI
+  services. Cluster logging is declared separately.
+- The API Gateway HTTP API has a default stage, but no route or integration.
+  This is intentional: the current K8s source provides no verified private
+  load balancer, VPC-link, backend URI, or public ingress target contract.
+
+### DynamoDB/application consistency
+
+The source contracts verified as of 2026-11-21 use:
+
+| Workload | Environment table name | Terraform key | Partition key |
+|---|---|---|---|
+| station-reservation | `aegisvolt-{env}-stations` | `stations` | `id` |
+| billing-wallet | `aegisvolt-{env}-wallets` | `wallets` | `id` |
+| energy-dispatch | `aegisvolt-{env}-dispatch` | `dispatch` | `id` |
+| GraphQL gateway SAGA | `aegisvolt-{env}-sagas` | `sagas` | `id` |
+
+No GSIs or sort keys are used in the inspected application access paths. Wallet
+and dispatch workflows use DynamoDB transactions with the same partition key.
+The application startup helpers call `ensure_table`, but Terraform precreates
+the declared tables and the IRSA policies intentionally omit CreateTable.
+
+### IAM and security decisions
+
+- EKS control-plane and worker roles are separate.
+- Application workloads receive one IRSA role per service.
+- DynamoDB actions are scoped to only that workload's table ARN.
+- Workload policies omit create-table, account-wide DynamoDB, VPC, EC2,
+  AdministratorAccess, and wildcard AWS actions.
+- CloudWatch writes are scoped to the matching application log-group ARN.
+- Application secrets are not modeled because the inspected source uses
+  environment variables and AWS SDK credential discovery rather than a secret
+  value contract.
+- The EKS API endpoint is private-only in Terraform. Human approval and a
+  management/network path are required for cluster administration.
+
+### Cost implications
+
+The following remain costs or cost risks:
+
+- EKS control plane: approximately $73/month for 730 hours at the audit's
+  stated $0.10/hour reference, before worker nodes.
+- Managed worker nodes: default `t3.medium` count is 1, with capacity 1-3.
+- NAT gateway: disabled by default. Enabling it adds an hourly charge and
+  data-processing charges; per-AZ NAT adds one cost per AZ.
+- Public IPv4/EIP charges apply to NAT and load balancers.
+- DynamoDB PAY_PER_REQUEST charges reads, writes, storage, and PITR.
+- CloudWatch log ingestion and 14-day default retention vary by volume.
+- ECR, VPC interface endpoints, load balancers, and cross-AZ traffic may add
+  charges.
+
+Cheaper alternatives include retaining Compose/Floci for development,
+disabling NAT when endpoints cover required AWS access, using 1 worker, and
+deferring private-only cluster management until a VPN or equivalent path exists.
+
+### Human decisions and blockers
+
+- Provide the real AWS region and state bucket names.
+- Decide whether private-only EKS API access is acceptable and provide the
+  management network path.
+- Decide whether NAT gateway egress is required for runtime dependencies.
+- Decide public versus private GraphQL ingress.
+- Provide a valid Kubernetes load-balancer/ingress backend contract and DNS
+  target before adding API Gateway routes or a VPC link.
+- Decide environment-specific node size and deletion-protection values.
+- Decide KMS key ownership if AWS-owned DynamoDB/EBS encryption is insufficient.
+- Approve the architecture and spending level before AWS provisioning.
+
+### Phase 2 validation
+
+- `terraform -chdir=infra fmt -recursive` — passed.
+- `terraform -chdir=infra fmt -check -recursive` — passed.
+- `terraform -chdir=infra init -backend=false` — passed. AWS provider 5.100.0
+  and TLS provider 4.4.2 were initialized locally.
+- `terraform -chdir=infra validate` — passed.
+
+No AWS authentication, AWS API query, remote-state command, Terraform plan,
+workspace operation, apply, destroy, or infrastructure creation was performed.
