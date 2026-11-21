@@ -1,0 +1,54 @@
+name: Deploy environments
+on:
+  push:
+    branches: [dev,test,prod]
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        required: true
+        type: choice
+        options: [dev,test,prod]
+jobs:
+  dev:
+    if: github.event_name == 'workflow_dispatch' || github.ref_name == 'dev'
+    runs-on: ubuntu-latest
+    environment: dev
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ secrets.AWS_ROLE_ARN }}
+          aws-region: us-east-1
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform -chdir=infra init -backend-config=../infra/backend/dev.hcl
+      - run: terraform -chdir=infra workspace select dev || terraform -chdir=infra workspace new dev
+      - run: terraform -chdir=infra apply -auto-approve -var-file=envs/dev.tfvars
+  test:
+    needs: dev
+    if: github.event_name == 'workflow_dispatch' && inputs.environment == 'test' || github.ref_name == 'test'
+    runs-on: ubuntu-latest
+    environment: test
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with: { role-to-assume: "${{ secrets.AWS_ROLE_ARN }}", aws-region: us-east-1 }
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform -chdir=infra init -backend-config=../infra/backend/test.hcl
+      - run: terraform -chdir=infra workspace select test || terraform -chdir=infra workspace new test
+      - run: terraform -chdir=infra plan -var-file=envs/test.tfvars
+      - run: terraform -chdir=infra apply -auto-approve -var-file=envs/test.tfvars
+  prod:
+    needs: test
+    if: github.event_name == 'workflow_dispatch' && inputs.environment == 'prod' || github.ref_name == 'prod'
+    runs-on: ubuntu-latest
+    environment: prod
+    steps:
+      - uses: actions/checkout@v4
+      - uses: aws-actions/configure-aws-credentials@v4
+        with: { role-to-assume: "${{ secrets.AWS_PROD_ROLE_ARN }}", aws-region: us-east-1 }
+      - uses: hashicorp/setup-terraform@v3
+      - run: terraform -chdir=infra init -backend-config=../infra/backend/prod.hcl
+      - run: terraform -chdir=infra workspace select prod || terraform -chdir=infra workspace new prod
+      - run: terraform -chdir=infra plan -var-file=envs/prod.tfvars
+      - run: terraform -chdir=infra apply -auto-approve -var-file=envs/prod.tfvars

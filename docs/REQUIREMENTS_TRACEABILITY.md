@@ -1,0 +1,69 @@
+# Requirements Traceability
+
+**Authority:** `Proyecto Final - Patrones Arquitectónicos Avanzados (AegisVolt).docx`.
+Status reflects repository inspection on 2026-11-20. `Partial` means code exists
+but does not demonstrate the complete requirement; `Missing` means not found;
+`Unverified` means a declaration exists but execution has not been demonstrated.
+
+| ID | Official requirement | Current evidence | Status | Gap / next validation |
+|---|---|---|---|---|
+| REQ-BIZ-01 | EV fleet charging platform; reserve, authorize funds, activate energy, audit telemetry | Three FastAPI services and GraphQL gateway | Partial | Business models are thin; telemetry is static; run end-to-end workflow against local stack |
+| REQ-UI-01 | Real-time station and connector status | `frontend/src/main.tsx` polls station data every 3 s | Partial | Connector inventory does not change on reservation; station scan mixes reservation records and may fail after a reservation; no availability guard by connector |
+| REQ-UI-02 | UI flow to reserve and activate charge | Current form calls `reserveAndActivateCharge` | Failing/partial | GraphQL operation has undeclared variables and wrong selected connector; see frontend spec |
+| REQ-UI-03 | Show feature flags for selected environment | Read-only `flags` query and list | Partial | Wrong official names, process env only, no environment argument/isolation, no write operation |
+| REQ-UI-04 | Show transaction history and compensations | SAGA table and retry button | Partial | Only summary fields; no event timeline/outcomes; button request errors unhandled |
+| REQ-BE-01 | Unified GraphQL API: station/telemetry queries and reservation/payment/session mutations | Strawberry gateway has station, telemetry, wallet, flags, SAGA queries and charge activation/retry mutations | Partial | No start/stop session API; no flag mutation; query fields lack paging/detail; verify schema in running instance |
+| REQ-BE-02 | At least three independent Dockerized services deployed on Kubernetes | Three service Dockerfiles; EKS and gateway K8s manifests | Partial | Only gateway is represented in checked-in K8s workload; no complete app deployment verified |
+| REQ-FLAG-01 | Independent environment feature flags for surge, fast-charge boost, simulated hardware fault | Two environment variables mapped to `canaryCharge` and `chargerFaultSimulation` | Missing/partial | Implement official names and environment-scoped persistence/config; no toggle operation |
+| REQ-SAGA-01 | Reserve -> debit -> activate across three services | Orchestrator calls all three in order | Partial | Fix concurrent idempotency, transaction atomicity, status handling, and business failure edges |
+| REQ-SAGA-02 | On activation failure refund then release connector | Compensation function invokes refund and cancellation in order | Partial | HTTP status ignored; compensation failure state may be false success; no event ledger |
+| REQ-SAGA-03 | On insufficient funds release reservation | Charge error branch attempts cancellation | Partial | Marks compensated before confirming release; errors in cancellation are not reliably modeled |
+| REQ-IAC-01 | Terraform modules for cloud infrastructure | Root modules and bootstrap exist | Partial | Modules are minimal; Terraform executable unavailable during prior verification; validate and plan before claim |
+| REQ-IAC-02 | S3 remote state with versioning/backups | Bootstrap defines versioning; root has S3 backend block | Partial/unverified | Backend HCL uses three `CHANGE_ME` buckets while bootstrap creates one supplied bucket; reconcile names, locking, workspace key, and bootstrap/apply sequence |
+| REQ-IAC-03 | Separate Terraform workspaces `dev/test/prod`, names include workspace | `local.prefix` uses `terraform.workspace`; backend/env files exist | Partial | No workspace guard/validation; identical tfvars; workflow path mismatch and no plan gate by PR target |
+| REQ-IAC-04 | VPC with public/private subnets and private endpoints to API Gateway, cluster, S3, DynamoDB, CloudWatch | Network module creates VPC and two public subnets | Missing | Add private subnets/routing, endpoint resources/security policies, private API service path |
+| REQ-DATA-01 | DynamoDB only, database per service, isolated per environment | boto3 services plus Terraform table module | Partial | Single `id` table schema differs from richer models; table resources and environment naming need alignment |
+| REQ-OBS-01 | Structured CloudWatch logs per environment/service with SAGA correlation id | Terraform one log group; app logs not structured | Missing/partial | Add JSON correlation/environment/service logs and groups/retention per environment |
+| REQ-OBS-02 | Prefect health of three environments, audit orphan/inconsistent/compensated SAGA, dashboard metrics | One Prefect flow checks one gateway and counts states/publishes metrics | Partial | No three-env matrix, service checks, orphan/cross-table consistency audit, or report artifacts |
+| REQ-CI-01 | Protected dev/test/prod branches; no direct/force push | `scripts/set_branch_protection.ps1` prints a suggested command | Missing/unverified | Script does not configure protection; apply and verify host rules for all three required branches |
+| REQ-CI-02 | feature -> dev -> test -> prod linear PR promotion | Deploy workflow triggers on environment branch pushes | Missing | Rework gating to promotion-only; current conditions can skip dependencies or bypass intended ordering |
+| REQ-CI-03 | PR checks: lint/build, unit/integration/E2E, Terraform plan | PR workflow does pytest, frontend build, Terraform fmt/init/validate, Compose config | Partial | No separate integration/E2E suites or Terraform plan; npm lint omitted |
+| REQ-CI-04 | Post-merge apply only target environment | Workflow has three jobs, each with init/apply | Partial | Job conditions/dependencies need correction; backend HCL path must be tested; no PR promotion proof |
+| REQ-DEPLOY-01 | Canary 10-20% traffic, health/CloudWatch error checks, promote or rollback | K8s ingress weight 10; script checks rollout and restarts | Partial | No checked-in base ingress, CloudWatch/error threshold, traffic verification, or promotion/rollback procedure in pipeline |
+| REQ-DEPLOY-02 | No downtime during rollout | Gateway stable/canary resources present | Unverified | Need service selector/ingress and rollout test under load |
+| REQ-TEST-01 | Unit, integration, end-to-end tests across layers | Two test files, four tests in `test_saga.py` and one shape assertion | Partial | No actual GraphQL HTTP E2E, service integration, or browser/frontend tests |
+| REQ-DOC-01 | Explain architecture and defend design choices | README, architecture/decision/deployment/defense docs, and expanded planning documents | Partial | Documentation set now includes requirements and handoff; implementation evidence and validated deployment/runbook still need completion |
+
+## Phase 0 runtime evidence
+
+- Python 3.12.10, `python -m pytest -q`: **5 passed**, 22 deprecation
+  warnings.
+- `docker compose config --quiet`: **passed**. Compose startup was attempted
+  but failed because Docker could not connect to
+  `//./pipe/dockerDesktopLinuxEngine`; no containers started.
+- Gateway HTTP introspection using temporary Uvicorn + Moto: **HTTP 200**, no
+  GraphQL errors. Exact SDL is `graphql/schema.graphql`.
+- Current frontend charge mutation validation: **failed** because `$station`
+  and `$key` are not declared in the operation.
+- Git status: unavailable because the project directory is not a Git worktree.
+
+## Frontend acceptance mapping
+
+See [FRONTEND_SPECIFICATION.md](./FRONTEND_SPECIFICATION.md). The screens
+implementable against existing operations are Overview, Stations & charging,
+SAGA summary history, and read-only flags. Interactive flag management,
+accurate per-environment isolation, true live subscriptions, and detailed
+compensation timeline are blocked by missing backend contracts.
+
+## Official evaluation weights
+
+The official document weights the defense by architectural layer:
+
+| Layer | Weight | Current evidence/gap |
+|---|---:|---|
+| IaC, S3, and networking | 30% | Terraform is a partial scaffold; private routing/endpoints and tested state recovery are missing |
+| CI/CD, environment promotion, and canary | 25% | Workflow/branch promotion and measured canary are partial |
+| Architecture patterns, SAGA, and feature flags | 25% | Forward flow exists; correctness and official environment flags need remediation |
+| Observability and presentation | 20% | One Prefect health/count flow and minimal UI; correlated CloudWatch and full UI states are missing |
+
+These are defense topics requiring live evidence, not merely files in the tree.

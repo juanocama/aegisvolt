@@ -1,0 +1,77 @@
+# AegisVolt GraphQL SDL snapshot v1
+# Retrieved: 2026-11-20
+# Source: HTTP POST /graphql to the gateway ASGI app served by temporary Uvicorn.
+# Runtime support: Moto-backed DynamoDB; introspection returned HTTP 200 with no errors.
+# Downstream service resolvers were not exercised by the introspection request.
+
+type ChargeResult {
+  success: Boolean!
+  sagaId: String!
+  correlationId: String!
+  state: String!
+  message: String!
+}
+
+type Connector {
+  id: String!
+  type: String!
+  status: String!
+  powerKw: Float!
+}
+
+type Dashboard {
+  environment: String!
+  servicesOk: Boolean!
+}
+
+type FeatureFlag {
+  name: String!
+  enabled: Boolean!
+}
+
+type Mutation {
+  reserveAndActivateCharge(walletId: String!, stationId: String!, connectorId: String!, amount: Float!, idempotencyKey: String!, chargeFault: Boolean! = false): ChargeResult!
+  retryCompensation(sagaId: String!): Saga!
+}
+
+type Query {
+  dashboard: Dashboard!
+  stations: [Station!]!
+  telemetry: [Telemetry!]!
+  wallet(walletId: String!): Wallet!
+  flags: [FeatureFlag!]!
+  sagas: [Saga!]!
+}
+
+type Saga {
+  id: String!
+  correlationId: String!
+  state: String!
+  reservationStatus: String!
+  chargeStatus: String!
+  activationStatus: String!
+  error: String
+}
+
+type Station {
+  id: String!
+  name: String!
+  status: String!
+  latitude: Float!
+  longitude: Float!
+  connectors: [Connector!]
+}
+
+type Telemetry {
+  stationId: String!
+  connectorId: String!
+  powerKw: Float!
+  energyKwh: Float!
+  state: String!
+}
+
+type Wallet {
+  id: String!
+  balance: Float!
+  currency: String!
+}
