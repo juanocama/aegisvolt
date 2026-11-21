@@ -1,5 +1,5 @@
 bucket         = "CHANGE_ME-aegisvolt-terraform-test"
 key            = "aegisvolt/test.tfstate"
-region         = "us-east-1"
-dynamodb_table = "aegisvolt-terraform-locks"
+region         = "CHANGE_ME_AWS_REGION"
 encrypt        = true
+use_lockfile   = true

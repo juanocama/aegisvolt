@@ -1,5 +1,14 @@
 locals { prefix = "${terraform.workspace}-aegisvolt" }
 
+resource "terraform_data" "workspace_guard" {
+  lifecycle {
+    precondition {
+      condition     = contains(["dev", "test", "prod"], terraform.workspace)
+      error_message = "Terraform workspace must be one of: dev, test, or prod."
+    }
+  }
+}
+
 module "network" {
   source = "./modules/network"
   prefix = local.prefix

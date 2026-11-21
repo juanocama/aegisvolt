@@ -1,2 +1,2 @@
-region       = "us-east-1"
+region       = "CHANGE_ME_AWS_REGION"
 cluster_name = "aegisvolt"

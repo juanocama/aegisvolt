@@ -4,7 +4,7 @@ data "aws_availability_zones" "available" { state = "available" }
 resource "aws_vpc" "main" {
   cidr_block           = "10.0.0.0/16"
   enable_dns_hostnames = true
-  tags = { Name = "${var.prefix}-vpc" }
+  tags                 = { Name = "${var.prefix}-vpc" }
 }
 resource "aws_subnet" "public" {
   count                   = 2
@@ -12,6 +12,6 @@ resource "aws_subnet" "public" {
   cidr_block              = cidrsubnet(aws_vpc.main.cidr_block, 8, count.index)
   availability_zone       = data.aws_availability_zones.available.names[count.index]
   map_public_ip_on_launch = true
-  tags = { Name = "${var.prefix}-public-${count.index}", "kubernetes.io/role/elb" = "1" }
+  tags                    = { Name = "${var.prefix}-public-${count.index}", "kubernetes.io/role/elb" = "1" }
 }
 output "subnet_ids" { value = aws_subnet.public[*].id }
