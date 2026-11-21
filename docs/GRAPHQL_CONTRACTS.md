@@ -204,6 +204,23 @@ compensated SAGA is returned unchanged. Downstream refund and reservation
 release must each confirm their final status before the SAGA can be marked
 `COMPENSATED`.
 
+### Stop and release a dev session
+
+```graphql
+mutation StopAndRelease($sagaId: String!) {
+  stopAndRelease(sagaId: $sagaId) {
+    id correlationId state reservationStatus chargeStatus activationStatus error
+  }
+}
+```
+
+This operation stops the dispatch activation and cancels the reservation for a
+`COMPLETED` SAGA. It does not refund an already completed charge. It is
+implemented for operator cleanup and local SAGA testing; it must not be
+presented as a substitute for compensation. The mutation returns `STOPPED`,
+`stopped` activation status, and `cancelled` reservation status when both
+downstream operations succeed.
+
 ## 3. Current GraphQL object models
 
 | Type | Fields |

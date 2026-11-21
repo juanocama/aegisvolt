@@ -235,6 +235,20 @@ mutation RetryCompensation($sagaId: String!) {
 }
 ```
 
+### Stop and release a dev session
+
+```graphql
+mutation StopAndRelease($sagaId: String!) {
+  stopAndRelease(sagaId: $sagaId) {
+    id correlationId state reservationStatus chargeStatus activationStatus error
+  }
+}
+```
+
+This mutation is dev cleanup only. It stops an active dispatch and releases
+the reservation, but it does not refund a completed charge. It is not
+compensation and must not be shown as a compensation action.
+
 Do not assume `state` is an enum: it is a string in the current schema. A
 business failure can be returned as a successful GraphQL response with
 `success: false` and a state/message. Treat HTTP/network failures, top-level

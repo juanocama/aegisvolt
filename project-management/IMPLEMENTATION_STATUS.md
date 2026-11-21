@@ -27,6 +27,7 @@ target environment.
 | Station/connector selection | Present | Real station and connector IDs are selected; request is disabled for non-available connectors |
 | Reservation/charge/activation form | Present | Declares exact GraphQL variables, validates positive amount, preserves idempotency key after network uncertainty |
 | SAGA history and retry | Present with contract limits | Summary table and guarded `COMPENSATION_FAILED` retry; detail/timeline/pagination remain unavailable |
+| Dev session cleanup | Present | `stopAndRelease` GraphQL mutation stops dispatch and releases the reservation in dev; it does not refund an already completed charge |
 | Feature-flag display | Present | Read-only official flag names and enabled/disabled values |
 | Telemetry | Present | Latest returned snapshot is labeled as non-historical |
 | Responsive/accessibility system | Present | Responsive breakpoints, focus styles, semantic labels, table scroll, status text, and reduced-motion handling |

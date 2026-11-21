@@ -52,3 +52,9 @@ export const RETRY_COMPENSATION_MUTATION = `mutation RetryCompensation($sagaId: 
     id correlationId state reservationStatus chargeStatus activationStatus error
   }
 }`;
+
+export const STOP_AND_RELEASE_MUTATION = `mutation StopAndRelease($sagaId: String!) {
+  stopAndRelease(sagaId: $sagaId) {
+    id correlationId state reservationStatus chargeStatus activationStatus error
+  }
+}`;

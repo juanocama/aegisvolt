@@ -8,6 +8,7 @@ import {
   FLAGS_QUERY,
   RESERVE_MUTATION,
   RETRY_COMPENSATION_MUTATION,
+  STOP_AND_RELEASE_MUTATION,
   SAGAS_QUERY,
   STATIONS_QUERY,
   TELEMETRY_QUERY,
@@ -222,6 +223,7 @@ export function App() {
         {page === "stations" && (
           <StationsPage
             stations={stations}
+            sagas={sagas}
             wallet={wallet}
             loading={loading}
             error={errors.stations}
@@ -448,6 +450,7 @@ function OverviewPage({
 
 function StationsPage({
   stations,
+  sagas,
   wallet,
   loading,
   error,
@@ -455,6 +458,7 @@ function StationsPage({
   onComplete,
 }: {
   stations: Station[];
+  sagas: Saga[];
   wallet: Wallet | null;
   loading: boolean;
   error?: string;
@@ -470,10 +474,39 @@ function StationsPage({
   const [submitting, setSubmitting] = useState(false);
   const [fieldError, setFieldError] = useState("");
   const [outcome, setOutcome] = useState<{ kind: "success" | "business" | "unknown" | "error"; message: string } | null>(null);
+  const [stopping, setStopping] = useState(false);
+  const stoppableSaga = sagas.find((saga) => saga.state === "COMPLETED");
 
   const effectiveStationId = selectedStationId || stations[0]?.id || "";
   const selectedStation = stations.find((station) => station.id === effectiveStationId);
   const selectedConnector = selectedStation?.connectors?.find((connector) => connector.id === selectedConnectorId);
+
+  const stopAndRelease = async () => {
+    if (!stoppableSaga) return;
+    const url = resolveGraphqlUrl(selectedEnvironment);
+    if (!url) {
+      setOutcome({ kind: "error", message: "Environment endpoint not configured." });
+      return;
+    }
+    setStopping(true);
+    setOutcome(null);
+    try {
+      const data = await graphqlRequest<{ stopAndRelease: Saga }>(
+        url,
+        STOP_AND_RELEASE_MUTATION,
+        { sagaId: stoppableSaga.id },
+      );
+      setOutcome({
+        kind: "success",
+        message: `Session stopped and reservation released: ${data.stopAndRelease.state}.`,
+      });
+      await onComplete();
+    } catch (requestError) {
+      setOutcome({ kind: "error", message: describeError(requestError) });
+    } finally {
+      setStopping(false);
+    }
+  };
 
   const submit = async () => {
     setFieldError("");
@@ -602,6 +635,11 @@ function StationsPage({
               {submitting ? "Submitting…" : outcome?.kind === "unknown" ? "Retry with same idempotency key" : "Reserve & activate charge"}
             </button>
             {outcome?.kind === "unknown" && <button type="button" className="secondary-button" onClick={newIntent}>Start new intent</button>}
+            {selectedEnvironment === "dev" && stoppableSaga && (
+              <button type="button" className="secondary-button" disabled={stopping} onClick={() => void stopAndRelease()}>
+                {stopping ? "Stopping…" : "Stop & release demo session"}
+              </button>
+            )}
           </div>
         </Panel>
       </div>

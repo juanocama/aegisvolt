@@ -650,6 +650,81 @@ class Mutation:
         )
 
     @strawberry.mutation
+    async def stop_and_release(self, saga_id: str) -> Saga:
+        saga = get_saga(saga_id)
+        if not saga:
+            raise GraphQLError("SAGA not found")
+
+        if saga.get("state") not in {"COMPLETED", "STOPPED"}:
+            raise GraphQLError("SAGA is not in a stoppable state")
+        if saga.get("state") == "STOPPED":
+            return Saga(
+                id=saga["id"],
+                correlation_id=saga["correlation_id"],
+                state=saga["state"],
+                reservation_status=saga["reservation_status"],
+                charge_status=saga["charge_status"],
+                activation_status=saga["activation_status"],
+                error=saga.get("error") or None,
+            )
+
+        activation_id = saga.get("activation_id")
+        reservation_id = saga.get("reservation_id")
+        if not activation_id or not reservation_id:
+            raise GraphQLError("SAGA is missing activation or reservation state")
+
+        async with httpx.AsyncClient(timeout=5) as client:
+            activation_response = await client.post(
+                f"{DISPATCH_URL}/activations/{activation_id}/stop"
+            )
+            if activation_response.status_code >= 400:
+                raise GraphQLError(
+                    f"Could not stop activation: HTTP {activation_response.status_code}"
+                )
+
+            reservation_response = await client.post(
+                f"{STATION_URL}/reservations/{reservation_id}/cancel"
+            )
+            if reservation_response.status_code >= 400:
+                raise GraphQLError(
+                    f"Activation stopped, but could not release reservation: "
+                    f"HTTP {reservation_response.status_code}"
+                )
+
+        current = get_saga(saga_id)
+        if not current:
+            raise RuntimeError(f"SAGA {saga_id} disappeared while stopping")
+        now = _now()
+        try:
+            saga_table.update_item(
+                Key={"id": saga_id},
+                UpdateExpression=(
+                    "SET #state = :stopped, activation_status = :activation, "
+                    "reservation_status = :reservation, updated_at = :updated"
+                ),
+                ExpressionAttributeNames={"#state": "state"},
+                ExpressionAttributeValues={
+                    ":stopped": "STOPPED",
+                    ":activation": "stopped",
+                    ":reservation": "cancelled",
+                    ":updated": now,
+                },
+            )
+        except ClientError as error:
+            raise RuntimeError(f"Could not persist stopped SAGA state: {error}") from error
+
+        current = get_saga(saga_id)
+        return Saga(
+            id=current["id"],
+            correlation_id=current["correlation_id"],
+            state=current["state"],
+            reservation_status=current["reservation_status"],
+            charge_status=current["charge_status"],
+            activation_status=current["activation_status"],
+            error=current.get("error") or None,
+        )
+
+    @strawberry.mutation
     async def retry_compensation(self, saga_id: str) -> Saga:
         saga = get_saga(saga_id)
         if not saga:

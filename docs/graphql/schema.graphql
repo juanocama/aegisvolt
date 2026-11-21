@@ -3,8 +3,8 @@
 # Source: HTTP POST /graphql to the gateway ASGI app served by temporary Uvicorn.
 # Runtime support: Moto-backed DynamoDB; introspection returned HTTP 200 with no errors.
 # Downstream service resolvers were not exercised by the introspection request.
-# Phase 1 re-verification: HTTP introspection returned 200 with no errors; SDL definitions match this snapshot
-# (type declaration order ignored). No operation or field signatures changed, so the versioned snapshot remains v1.
+# Phase 1 re-verification: HTTP introspection returned 200 with no errors.
+# Dev cleanup update: live gateway includes Mutation.stopAndRelease(sagaId: String!): Saga!.
 
 type ChargeResult {
   success: Boolean!
@@ -33,6 +33,7 @@ type FeatureFlag {
 
 type Mutation {
   reserveAndActivateCharge(walletId: String!, stationId: String!, connectorId: String!, amount: Float!, idempotencyKey: String!, chargeFault: Boolean! = false): ChargeResult!
+  stopAndRelease(sagaId: String!): Saga!
   retryCompensation(sagaId: String!): Saga!
 }
 
