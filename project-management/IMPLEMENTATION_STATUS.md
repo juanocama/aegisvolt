@@ -1,6 +1,6 @@
 # Implementation Status
 
-**Audit date:** 2026-11-20. Status describes checked-in code, not deployment.
+**Audit date:** 2026-11-22. Status describes checked-in code, not deployment.
 
 Legend: **Present** = source exists; **Partial** = some behavior exists but
 does not satisfy the full requirement; **Missing** = not implemented or not
@@ -89,12 +89,15 @@ startup table. They did not validate Docker networking, Floci, or calls to the
 three downstream services. The SDL and contract document distinguish this
 limited verification from a full local deployment.
 
-## Phase 1 backend correctness verification (2026-11-20)
+## Phase 1 backend correctness verification (updated 2026-11-22)
 
 | Check | Exact result |
 |---|---|
 | Pre-change baseline | `python -m pytest -q`: 5 passed, 22 deprecation warnings. |
 | Full post-change suite | `python -m pytest -q`: **16 passed, 367 warnings**, exit 0. |
+| 2026-11-22 revalidation | `python -m pytest -q -o faulthandler_timeout=15`: **20 passed, 367 warnings**, exit 0. |
+| Replay reproducibility | Independent replay test: 1 passed. 20 separate pytest processes: **20 passed, 0 failed**. |
+| Phase 1 report | `docs/PHASE_1_BACKEND_REPORT.md` records baseline, Windows diagnosis, test evidence, limitations, and blockers. |
 | GraphQL and service integration | Tests use the actual Strawberry/FastAPI apps and route HTTP calls through in-process ASGI transports; DynamoDB operations use Moto. This is not Docker, Floci, or live AWS verification. |
 | Compose syntax | `docker compose config --quiet`: passed after adding `ENVIRONMENT=dev` and official flag variables. |
 | Compose runtime | Not started in Phase 1; the Phase 0 attempt was blocked by the unavailable Docker Desktop Linux engine. |
