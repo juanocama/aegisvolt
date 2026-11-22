@@ -3,7 +3,7 @@
 **Status:** Phase 1 backend correctness and the integrated frontend implementation
 are complete within the available local verification boundary. AWS/deployment
 work remains outside scope pending approval.  
-**Last updated:** 2026-11-20.
+**Last updated:** 2026-11-22.
 
 ## Phase 1 implementation
 
@@ -32,6 +32,13 @@ work remains outside scope pending approval.
 
 - Before implementation: `python -m pytest -q` — **5 passed**.
 - After implementation: `python -m pytest -q` — **16 passed, 367 warnings**.
+- 2026-11-22 verification: `python -m pytest -q -o faulthandler_timeout=15`
+  — **20 passed, 367 warnings**. All service, SAGA, compensation, replay, and
+  canary-readiness tests completed; the earlier Windows TestClient hang did not
+  reproduce in this run.
+- Replay test repeated in 20 separate pytest processes: **20 passed, 0 failed**.
+- Details are recorded in
+  [docs/PHASE_1_BACKEND_REPORT.md](../docs/PHASE_1_BACKEND_REPORT.md).
 - Coverage includes GraphQL/service success, insufficient funds, activation
   failure, successful and failed compensation/retry, sequential/concurrent
   duplicate SAGA calls, payload conflicts, concurrent connector reservations,
