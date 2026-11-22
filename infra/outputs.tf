@@ -32,3 +32,13 @@ output "github_actions_ecr_role_arns" {
   description = "Optional GitHub Actions OIDC role ARNs for this Terraform workspace."
   value       = try(module.github_actions_ecr[0].role_arns, {})
 }
+
+output "graphql_api_id" {
+  description = "ID of the API Gateway HTTP API shell."
+  value       = module.api_gateway.api_id
+}
+
+output "graphql_api_endpoint" {
+  description = "Regional API Gateway endpoint; routes and backend integration are not yet configured."
+  value       = module.api_gateway.api_endpoint
+}
