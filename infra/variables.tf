@@ -3,8 +3,8 @@ variable "region" {
   type        = string
 
   validation {
-    condition     = length(trimspace(var.region)) > 0
-    error_message = "The AWS region must be configured."
+    condition     = length(trimspace(var.region)) > 0 && !can(regex("CHANGE_ME", var.region))
+    error_message = "The AWS region must be configured and must not contain CHANGE_ME."
   }
 }
 
@@ -107,5 +107,19 @@ variable "github_repository" {
   validation {
     condition     = var.github_repository == "" || can(regex("^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$", var.github_repository))
     error_message = "github_repository must be empty or an exact owner/repository slug."
+  }
+}
+
+variable "eks_admin_principal_arns" {
+  description = "Optional IAM principal ARNs granted the AmazonEKSClusterAdminPolicy access entry."
+  type        = list(string)
+  default     = []
+
+  validation {
+    condition = alltrue([
+      for arn in var.eks_admin_principal_arns :
+      can(regex("^arn:[^:]+:iam::[0-9]{12}:((role|user)/.+)$", arn))
+    ])
+    error_message = "eks_admin_principal_arns must contain valid IAM role or user ARN strings."
   }
 }

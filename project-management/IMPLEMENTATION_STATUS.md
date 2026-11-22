@@ -59,7 +59,7 @@ Exact operation list and contract gaps: `docs/GRAPHQL_CONTRACTS.md`.
 | Capability | Status | Evidence / gap |
 |---|---|---|
 | Dockerfiles and Compose | Present, unverified end-to-end | Compose defines Floci, three services, gateway; no frontend service |
-| Terraform bootstrap / workspaces / modules | Partial | Modules exist; private subnets, VPC endpoints and API integration missing; bootstrap creates one supplied bucket while per-env backend HCL names three `CHANGE_ME` buckets |
+| Terraform bootstrap / workspaces / modules | Improved, not deployment-ready | Root and bootstrap validate locally; one shared state-bucket pattern and environment keys, fixed cluster naming, optional EKS access entries, and normalized CloudWatch paths are present. Real placeholders, API integration, and live AWS planning remain blocked. |
 | EKS/ECR | Partial | EKS and repositories declared; no node group/full app workloads |
 | Kubernetes stable/canary | Partial | Only gateway manifests; canary ingress lacks a checked-in base ingress; script checks health/restarts, not required CloudWatch/traffic gates |
 | Prefect | Partial | One gateway health check + SAGA counts; no three-environment cross-table audit |
@@ -103,6 +103,19 @@ limited verification from a full local deployment.
 | Compose runtime | Not started in Phase 1; the Phase 0 attempt was blocked by the unavailable Docker Desktop Linux engine. |
 | Frontend | No frontend source was modified. The existing frontend mutation/configuration gaps remain. |
 | Infrastructure | No Terraform, AWS, or Kubernetes operation was run. |
+
+## Phase 2 Terraform readiness verification (2026-11-22)
+
+| Check | Exact result |
+|---|---|
+| Terraform formatting | `terraform fmt -check -recursive`: passed |
+| Root initialization | `terraform init -backend=false -input=false`: passed |
+| Root validation | `terraform validate -no-color`: passed |
+| Development tfvars | `terraform validate -no-color -var-file='envs/dev.tfvars'`: passed local validation |
+| Bootstrap initialization | `terraform init -backend=false -input=false`: passed |
+| Bootstrap validation | `terraform validate -no-color`: passed |
+| Remote backend, plan, and apply | Not initialized or executed |
+| AWS resources | No API call or resource mutation was performed |
 
 The 16 tests cover full charging, insufficient balance, gated hardware-fault
 compensation, failed compensation and retry, sequential/concurrent duplicate
