@@ -152,3 +152,52 @@ deployment; those operations still require separate approval.
   commands are in `docs/PHASE_3_KUBERNETES_REPORT.md`.
 - Kubernetes manifests parsed and rendered, but API-server schema validation
   was not available locally; no invalid fields were found in the static audit.
+
+## Phase 4 infrastructure and observability status
+
+- Work is in `feature/phase-4-infrastructure-observability`, branched from the refreshed `origin/dev`; changes are local and have not been committed or pushed.
+- Audit, architecture decisions, prioritized gap matrix, required values, and implementation boundaries are recorded in `docs/PHASE_4_INFRASTRUCTURE_OBSERVABILITY_REPORT.md`.
+- The HTTP API shell was replaced by private REST API Gateway, execute-api VPC endpoint/policy, and an optional GraphQL VPC Link integration. The integration is disabled until the internal AWS LBC ALB ARN and DNS name exist.
+- EKS now declares Kubernetes 1.37 and `API_AND_CONFIG_MAP`; at least one validated real admin ARN is required before provisioning. Service IRSA policies are reduced to the DynamoDB calls each service actually makes.
+- CloudWatch Observability and Pod Identity add-ons and retained log groups are declared. FastAPI writes JSON request metadata with a propagated correlation ID; Prefect audits require explicit private config for all three environments and report SAGA event/consistency summaries.
+- CI now includes strict kubeconform schema validation pinned by image digest for root and all three overlays. Gateway Ingress is internal and serves `/graphql`; `/health` is used for ALB health checks.
+- `terraform fmt -check -recursive`, `terraform init -backend=false -input=false -reconfigure` (AWS provider 6.73.0), `terraform validate -no-color`, and `python -m compileall -q common gateway services tests observability/prefect` passed. `tests/test_services.py` plus `tests/test_phase4_observability.py`: 9 passed, 68 warnings.
+- Full `python -m pytest -q -o faulthandler_timeout=10` did not finish; it reproduced the Windows Proactor socket-pair hang at `tests/test_compensation.py::test_retry_compensation_rejects_non_failed_saga` and was interrupted. No tests were weakened or removed.
+- Root and all overlays rendered and parsed: 15 root resources and 14 per overlay. CI workflow YAML parsed. Kubeconform itself could not run locally because it is not installed and Docker Desktop denied access to its engine pipe.
+- No AWS API, S3 backend, plan/apply, Kubernetes deployment, or runtime CloudWatch validation was performed.
+- Remaining integration requirements: install/configure AWS Load Balancer Controller with its upstream IAM policy through a private cluster-connected runner, deploy with immutable ECR image SHAs, then set the ALB inputs and enable the API integration. Provide region/account/state bucket and real EKS admin principal. Prefect needs private URLs and a read-only DynamoDB/CloudWatch role.
+- Official course DOCX is unavailable in the inspected files. Phase 4 rubric percentages differ from the older traceability snapshot; the discrepancy is documented, not resolved.
+
+## Phase 4 targeted remediation update
+
+- `common/observability.py` validates/normalizes correlation IDs and logs route templates instead of dynamic URL paths; malformed or missing IDs receive a generated UUID. Added focused privacy/propagation tests.
+- Prefect now distinguishes fresh active SAGA states from stale nonterminal states using `updated_at`, the existing lease, and configurable `SAGA_STALE_AFTER_SECONDS` (default 300). Compensation attempts/retries use the actual `compensation` and `compensation_retry` events.
+- Routine audit scans the paginated SAGA table and BatchGets only downstream records referenced by SAGA items. Exhaustive orphan detection is explicitly optional with `SAGA_FULL_ORPHAN_SCAN_ENABLED=true`; disabled results say the audit is incomplete, not zero. Existing key-only DynamoDB model still prevents efficient incremental SAGA/orphan discovery; see `docs/PHASE_4_REMEDIATION_READINESS.md` for the required index/cursor design and cost limits.
+- CI pins the Kubeconform schema source to Kubernetes 1.37.0 strict schema ref; image digest, strict mode and root/dev/test/prod validation are retained.
+- `compileall` passed; seven synchronous focused tests passed. Async middleware tests and full suite remain blocked locally by Windows Proactor socket-pair loop startup; WSL access is denied. No AWS calls or resource changes were performed.
+- Readiness plan records endpoint/NAT matrix, exact LBC v3.6.3 upstream IAM policy source and Pod Identity install sequence, EKS role ARN inference/mismatch, add-on version lookup steps, and private frontend/CORS decisions. AWS configuration remains unmodified.
+
+## Phase 4 execution update (2026-11-23)
+
+- Fixed Prefect BatchGet serialization bug (crashed against real DynamoDB) and missing `ACTIVATION_UNCERTAIN` active state; added Moto-backed tests. Updated stale gateway `/health` assertion. Full suite: 36 passed on Windows.
+- Verified AWS identity and real EKS admin role ARN; account has no AegisVolt resources yet. Pinned EKS 1.37 add-on versions, added ELB/Monitoring endpoints, configured dev tfvars and backends (`aegisvolt-tfstate-065656773005-us-east-1`).
+- Read-only dev plan: create-only, no NAT. **Blocked on owner approval:** state bucket creation and dev apply (~USD 235/month estimate). Details in `docs/PHASE_4_REMEDIATION_READINESS.md`.
+
+## Phase 4 temporary AWS dev deployment (2026-11-23)
+
+- User-authorized same-day `dev` deployment (USD 4 ceiling, no credits) was applied, tested end-to-end and destroyed. Evidence: `docs/PHASE_4_DEV_DEPLOYMENT_EVIDENCE.md`.
+- Added: frontend container/manifests with dedicated internal ALB, LBC Pod Identity role + ECR mirror, Session Manager access host, single-AZ endpoint option, dev cost settings.
+- Live run found and fixed: billing IAM `UpdateItem`, CloudWatch agent crash-loop, REST API policy drift, nginx TLS verify depth, dev overlay region/ingress gaps.
+- Teardown independently verified; only the Terraform state bucket remains. No commit/push performed.
+- Remaining: Client VPN not implemented (SSM port forwarding documented as substitute); full local pytest still blocked by Windows hang.
+
+## Phase 5 rubric completion (branch `feature/phase-5-rubric-completion`, 2026-11-23)
+
+Authority: official PDF (`Proyecto Final - Patrones Arquitectónicos Avanzados (AegisVolt)`), which does not require a VPN; Session Manager remains the private access path.
+
+- Feature flags moved to per-environment DynamoDB tables `aegisvolt-<env>-flags` (Terraform-seeded, runtime toggle via `scripts/set_feature_flag.py`, no redeploy). `SIMULATE_CHARGER_HARDWARE_FAULT` alone forces activation failure and compensation (spec 2.3); `chargeFault` is a deprecated no-op. Frontend shows a fault warning instead of a per-request checkbox.
+- Logs routed by Fluent Bit to `/aegisvolt/<env>/<service>` (config validated with `fluent-bit --dry-run`); metric filters, 5xx alarm and dashboard per environment.
+- Prefect flow publishes table/markdown artifacts, reports unavailable environments explicitly, and checks state-specific SAGA invariants; run recorded on the project Prefect server (Compose profile `observability`, port 4201).
+- CI rewritten: promotion-guard, lint-build, unit-tests, integration-tests, e2e-tests (Compose), terraform-static, terraform-plan (target-branch workspace, OIDC read-only role), kubernetes. Post-merge `deploy.yml`: branch → workspace apply, SHA images, SSM tunnel, LBC, canary 20% with CloudWatch gate and auto rollback, post-deploy E2E.
+- Fixed pre-existing defects: kubeconform schema URL (404) and arm64-only image digest; refund replay returning stale `charged`; flaky log-privacy assertion; Prefect false positives for refunded/stopped records; ALB names colliding across environments.
+- Verification: pytest full suite in Linux container; Compose E2E 6/6; kubeconform strict 84/84; CI kubernetes validators; terraform fmt/validate; actionlint; frontend lint/test/build. No Terraform was applied in this phase (per user instruction).

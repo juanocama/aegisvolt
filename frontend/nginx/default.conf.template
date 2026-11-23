@@ -1,0 +1,30 @@
+server {
+    listen 8080;
+    server_tokens off;
+    root /usr/share/nginx/html;
+
+    location = /healthz {
+        access_log off;
+        default_type text/plain;
+        return 200 "ok\n";
+    }
+
+    # Same-origin GraphQL: browser -> internal frontend ALB -> nginx ->
+    # private API Gateway (execute-api VPC endpoint) -> VPC Link -> GraphQL ALB.
+    location = /graphql {
+        limit_except POST { deny all; }
+        proxy_pass ${GRAPHQL_UPSTREAM_SCHEME}://${GRAPHQL_UPSTREAM_HOST}${GRAPHQL_UPSTREAM_PATH};
+        proxy_ssl_server_name on;
+        proxy_ssl_name ${GRAPHQL_UPSTREAM_HOST};
+        proxy_ssl_verify on;
+        proxy_ssl_verify_depth 3;
+        proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;
+        proxy_set_header Host ${GRAPHQL_UPSTREAM_HOST};
+        proxy_set_header X-Correlation-ID $request_id;
+        proxy_read_timeout 30s;
+    }
+
+    location / {
+        try_files $uri /index.html;
+    }
+}
