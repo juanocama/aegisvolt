@@ -127,6 +127,62 @@ jobs:
           print(f"Validated {len(resources)} Kubernetes resources, workload references, and service selectors.")
           PY
 
+      - name: Render environment overlays
+        shell: bash
+        run: |
+          set -euo pipefail
+          # These repository-controlled overlays reference only the checked-in k8s root YAML files.
+          # Keep the relaxed loader scoped to these paths; do not accept external manifest inputs.
+          for environment in dev test prod; do
+            kubectl kustomize --load-restrictor LoadRestrictionsNone "k8s/overlays/${environment}" \
+              > "$RUNNER_TEMP/aegisvolt-${environment}-rendered.yaml"
+            test -s "$RUNNER_TEMP/aegisvolt-${environment}-rendered.yaml"
+          done
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import yaml
+
+          rendered_dir = Path(os.environ["RUNNER_TEMP"])
+          workloads = {"gateway", "station-reservation", "billing-wallet", "energy-dispatch"}
+          for environment in ("dev", "test", "prod"):
+              path = rendered_dir / f"aegisvolt-{environment}-rendered.yaml"
+              resources = [item for item in yaml.safe_load_all(path.read_text()) if item]
+              keyed = {(item["kind"], item["metadata"]["name"]): item for item in resources}
+              deployments = {name: keyed[("Deployment", name)] for name in workloads}
+              services = {name: keyed[("Service", name)] for name in workloads}
+              config = keyed[("ConfigMap", "aegisvolt-config")]["data"]
+
+              assert {kind for kind, _ in keyed} >= {"Namespace", "ServiceAccount", "ConfigMap", "Service", "Deployment"}
+              assert len(resources) == len(keyed), f"duplicate resources in {environment} overlay"
+              assert keyed[("Namespace", "aegisvolt")]["metadata"]["labels"]["environment"] == environment
+              assert config["ENVIRONMENT"] == environment
+              assert config["SAGA_TABLE"] == f"aegisvolt-{environment}-sagas"
+              for resource in resources:
+                  assert resource["metadata"].get("namespace", "aegisvolt") == "aegisvolt"
+                  assert resource["metadata"].get("labels", {}).get("environment") == environment, resource["metadata"]["name"]
+
+              expected_replicas = 1 if environment == "dev" else 2
+              for name, deployment in deployments.items():
+                  spec = deployment["spec"]
+                  assert spec["replicas"] == expected_replicas, (environment, name)
+                  pod = spec["template"]
+                  assert pod["metadata"]["labels"]["environment"] == environment
+                  container = pod["spec"]["containers"][0]
+                  assert f"/aegisvolt/{environment}/{name}:CHANGE_ME_SHA" in container["image"]
+                  assert container["resources"].get("requests") and container["resources"].get("limits")
+                  assert container.get("startupProbe") and container.get("livenessProbe") and container.get("readinessProbe")
+                  if name != "gateway":
+                      values = {entry["name"]: entry.get("value") for entry in container["env"]}
+                      assert values["TABLE_NAME"] == f"aegisvolt-{environment}-" + {
+                          "station-reservation": "stations",
+                          "billing-wallet": "wallets",
+                          "energy-dispatch": "dispatch",
+                      }[name]
+                  assert services[name]["spec"]["type"] == "ClusterIP"
+              print(f"Validated {environment} overlay: {len(resources)} objects, environment tables, images, probes, resources, and replicas.")
+          PY
+
   docker-images:
     name: Build ${{ matrix.image }} (no push)
     needs: [backend, frontend, terraform, kubernetes]
