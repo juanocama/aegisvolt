@@ -177,6 +177,10 @@ def refund(charge_id: str):
 
     amount = charge_item["amount"]
     wallet_id = charge_item["wallet_id"]
+    wallet_item = _get_item(wallet_id)
+    if not wallet_item:
+        raise HTTPException(404, "Wallet not found")
+    expected_balance = wallet_item["balance"]
     refund_item = {
         "id": refund_id,
         "record_type": "refund",
@@ -193,9 +197,12 @@ def refund(charge_id: str):
                         "TableName": TABLE,
                         "Key": {"id": {"S": wallet_id}},
                         "UpdateExpression": "SET balance = balance + :amount",
-                        "ConditionExpression": "attribute_exists(id)",
-                        "ExpressionAttributeValues": {":amount": {"N": _amount_text(amount)}},
-                    }
+                        "ConditionExpression": "attribute_exists(id) AND balance = :expected",
+                        "ExpressionAttributeValues": {
+                            ":amount": {"N": _amount_text(amount)},
+                            ":expected": {"N": _amount_text(expected_balance)},
+                        },
+                    },
                 },
                 {
                     "Update": {

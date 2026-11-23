@@ -1,6 +1,6 @@
 # Implementation Status
 
-**Audit date:** 2026-11-20. Status describes checked-in code, not deployment.
+**Audit date:** 2026-11-22. Status describes checked-in code, not deployment.
 
 Legend: **Present** = source exists; **Partial** = some behavior exists but
 does not satisfy the full requirement; **Missing** = not implemented or not
@@ -59,9 +59,14 @@ Exact operation list and contract gaps: `docs/GRAPHQL_CONTRACTS.md`.
 | Capability | Status | Evidence / gap |
 |---|---|---|
 | Dockerfiles and Compose | Present, unverified end-to-end | Compose defines Floci, three services, gateway; no frontend service |
-| Terraform bootstrap / workspaces / modules | Partial | Modules exist; private subnets, VPC endpoints and API integration missing; bootstrap creates one supplied bucket while per-env backend HCL names three `CHANGE_ME` buckets |
+| Terraform bootstrap / workspaces / modules | Improved, not deployment-ready | Root and bootstrap validate locally; one shared state-bucket pattern and environment keys, fixed cluster naming, optional EKS access entries, and normalized CloudWatch paths are present. Real placeholders, API integration, and live AWS planning remain blocked. |
 | EKS/ECR | Partial | EKS and repositories declared; no node group/full app workloads |
-| Kubernetes stable/canary | Partial | Only gateway manifests; canary ingress lacks a checked-in base ingress; script checks health/restarts, not required CloudWatch/traffic gates |
+| Kubernetes workloads | Present, locally rendered | Gateway plus three backend Deployments, four ClusterIP Services, ConfigMap, Namespace, ServiceAccounts, probes, resource bounds, and hardened container security contexts remain in root `k8s/` manifests |
+| Kubernetes environment overlays | Present, locally rendered | `k8s/overlays/{dev,test,prod}` set environment labels, environment tables, ECR paths, image SHA placeholder, service-account role ARN placeholders, and replica counts; locally asserted, no deployment has been performed |
+| Kubernetes canary routing | Partial / not deployed | Existing canary Ingress remains outside the root Kustomize graph; no verified stable/canary workloads, router, or request-level analysis is configured |
+| Kubernetes private API integration | Missing | API Gateway remains a regional HTTP API shell without route/integration/VPC Link/private execute-api endpoint wiring; ClusterIP Services remain internal only |
+| Kubernetes CI rendering | Present, locally validated | Root validation retains `Path("k8s").glob("*.yaml")`; CI also renders each checked-in overlay with `LoadRestrictionsNone` and asserts environment-specific resources/configuration, scoped to repository-controlled files |
+| Kubernetes log forwarding | Unverified / incomplete | CloudWatch log groups and IAM permissions exist, but no EKS pod log collector is declared in the inspected manifests |
 | Prefect | Partial | One gateway health check + SAGA counts; no three-environment cross-table audit |
 | PR CI | Partial | pytest, frontend build, Terraform fmt/init/validate, Compose config; no integration/E2E/plan/lint pipeline |
 | Environment promotion | Missing/partial | Push-based jobs do not enforce linear PR promotion and conditions require review |
@@ -89,17 +94,33 @@ startup table. They did not validate Docker networking, Floci, or calls to the
 three downstream services. The SDL and contract document distinguish this
 limited verification from a full local deployment.
 
-## Phase 1 backend correctness verification (2026-11-20)
+## Phase 1 backend correctness verification (updated 2026-11-22)
 
 | Check | Exact result |
 |---|---|
 | Pre-change baseline | `python -m pytest -q`: 5 passed, 22 deprecation warnings. |
 | Full post-change suite | `python -m pytest -q`: **16 passed, 367 warnings**, exit 0. |
+| 2026-11-22 revalidation | `python -m pytest -q -o faulthandler_timeout=15`: **20 passed, 367 warnings**, exit 0. |
+| Replay reproducibility | Independent replay test: 1 passed. 20 separate pytest processes: **20 passed, 0 failed**. |
+| Phase 1 report | `docs/PHASE_1_BACKEND_REPORT.md` records baseline, Windows diagnosis, test evidence, limitations, and blockers. |
 | GraphQL and service integration | Tests use the actual Strawberry/FastAPI apps and route HTTP calls through in-process ASGI transports; DynamoDB operations use Moto. This is not Docker, Floci, or live AWS verification. |
 | Compose syntax | `docker compose config --quiet`: passed after adding `ENVIRONMENT=dev` and official flag variables. |
 | Compose runtime | Not started in Phase 1; the Phase 0 attempt was blocked by the unavailable Docker Desktop Linux engine. |
 | Frontend | No frontend source was modified. The existing frontend mutation/configuration gaps remain. |
 | Infrastructure | No Terraform, AWS, or Kubernetes operation was run. |
+
+## Phase 2 Terraform readiness verification (2026-11-22)
+
+| Check | Exact result |
+|---|---|
+| Terraform formatting | `terraform fmt -check -recursive`: passed |
+| Root initialization | `terraform init -backend=false -input=false`: passed |
+| Root validation | `terraform validate -no-color`: passed |
+| Development tfvars | `terraform validate -no-color -var-file='envs/dev.tfvars'`: passed local validation |
+| Bootstrap initialization | `terraform init -backend=false -input=false`: passed |
+| Bootstrap validation | `terraform validate -no-color`: passed |
+| Remote backend, plan, and apply | Not initialized or executed |
+| AWS resources | No API call or resource mutation was performed |
 
 The 16 tests cover full charging, insufficient balance, gated hardware-fault
 compensation, failed compensation and retry, sequential/concurrent duplicate

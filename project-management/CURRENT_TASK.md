@@ -1,9 +1,11 @@
 # Current Task
 
-**Status:** Phase 1 backend correctness and the integrated frontend implementation
-are complete within the available local verification boundary. AWS/deployment
-work remains outside scope pending approval.  
-**Last updated:** 2026-11-20.
+**Status:** Phase 1 backend correctness, frontend implementation, and Phase 2
+Terraform consistency work have completed their recorded local verification.
+Phase 3 Kubernetes base/overlays now render locally, but the full backend suite
+remains blocked by the Windows TestClient socket startup hang. AWS/EKS
+deployment remains outside scope pending approval.
+**Last updated:** 2026-11-23.
 
 ## Phase 1 implementation
 
@@ -32,6 +34,13 @@ work remains outside scope pending approval.
 
 - Before implementation: `python -m pytest -q` — **5 passed**.
 - After implementation: `python -m pytest -q` — **16 passed, 367 warnings**.
+- 2026-11-22 verification: `python -m pytest -q -o faulthandler_timeout=15`
+  — **20 passed, 367 warnings**. All service, SAGA, compensation, replay, and
+  canary-readiness tests completed; the earlier Windows TestClient hang did not
+  reproduce in this run.
+- Replay test repeated in 20 separate pytest processes: **20 passed, 0 failed**.
+- Details are recorded in
+  [docs/PHASE_1_BACKEND_REPORT.md](../docs/PHASE_1_BACKEND_REPORT.md).
 - Coverage includes GraphQL/service success, insufficient funds, activation
   failure, successful and failed compensation/retry, sequential/concurrent
   duplicate SAGA calls, payload conflicts, concurrent connector reservations,
@@ -44,7 +53,24 @@ work remains outside scope pending approval.
   `//./pipe/dockerDesktopLinuxEngine`.
 - No Terraform command/apply, AWS operation, Kubernetes deployment, or
   frontend build was run.
-- No `.git` metadata exists, so Git cannot establish clean/dirty status.
+- Git metadata was available for the Phase 3 task. The checkout was on
+  `feature/phase-3-kubernetes` at `e1cf059`; `.git` write access was denied, so
+  remote refs could not be refreshed. See the Phase 3 report for this
+  verification boundary.
+
+## Phase 2 Terraform verification
+
+- Terraform 1.17.2 was available.
+- `terraform fmt -check -recursive` passed.
+- Root `terraform init -backend=false -input=false` passed.
+- Root `terraform validate -no-color` passed.
+- Development tfvars passed local Terraform validation.
+- Bootstrap `terraform init -backend=false -input=false` passed.
+- Bootstrap `terraform validate -no-color` passed.
+- AWS provider 5.100.0 and TLS provider 4.4.2 were reused from the local lock
+  files; no AWS API or remote backend operation was performed.
+- Details are recorded in
+  [docs/PHASE_2_TERRAFORM_REPORT.md](../docs/PHASE_2_TERRAFORM_REPORT.md).
 
 ## Frontend verification
 
@@ -93,3 +119,36 @@ metrics are configured. The `canary-readiness.yml` workflow is a non-deploying
 fail-closed gate. No AWS/GitHub live inspection or infrastructure mutation was
 performed. Repository-side Phase 4 code does not authorize live AWS/Kubernetes
 deployment; those operations still require separate approval.
+
+## Phase 3 Kubernetes implementation status
+
+- The root base remains directly under `k8s/`; its Kustomize entry point and
+  root YAML discovery behavior are unchanged.
+- `k8s/overlays/{dev,test,prod}` reference the eight root base YAML files
+  directly. Overlay rendering requires
+  `kubectl kustomize --load-restrictor LoadRestrictionsNone ...` because the
+  shared files are outside each overlay directory. This option is scoped to
+  the checked-in repository overlays; the root render keeps the default
+  restriction. Each overlay adds an `environment` label to resource metadata
+  and pod templates.
+- Root render, all three overlay renders, local environment/table/image/
+  replica/probe/resource/service assertions, the embedded CI root manifest
+  validator, workflow YAML parsing, and `git diff --check` passed locally.
+- `python -m pytest -q tests/test_services.py`: 5 passed. Full pytest was
+  attempted with faulthandler and reproduced a Windows Proactor socket-pair
+  hang in `tests/test_compensation.py::test_retry_compensation_rejects_non_failed_saga`;
+  the run was interrupted without changing application code or tests.
+- Current local HEAD is `58353ff`, the same as locally recorded `origin/dev`,
+  and includes CI repair commit `9509b3a`. The feature branch is reported six
+  commits ahead of its local `origin/feature/phase-3-kubernetes` tracking ref.
+  No fetch was done; GitHub CLI is unavailable, so live PR/check/review state
+  and fresh remote ancestry remain unverified.
+- ECR account/region/SHA and IRSA account identifiers remain placeholders;
+  no EKS admin principal is configured; production sizing, private API Gateway
+  integration, pod log collection, AWS/EKS provisioning, and deployment are
+  not complete.
+- GitHub Actions itself was not run; the workflow overlay shell step could not
+  execute locally because Windows denied `bash.exe` access. Details and exact
+  commands are in `docs/PHASE_3_KUBERNETES_REPORT.md`.
+- Kubernetes manifests parsed and rendered, but API-server schema validation
+  was not available locally; no invalid fields were found in the static audit.

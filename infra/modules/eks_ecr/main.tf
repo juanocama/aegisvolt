@@ -47,6 +47,12 @@ variable "environment_name" {
   description = "Environment name used in ECR repository naming."
 }
 
+variable "admin_principal_arns" {
+  type        = list(string)
+  description = "Optional IAM principal ARNs with EKS cluster administrator access."
+  default     = []
+}
+
 resource "aws_ecr_repository" "service" {
   for_each             = toset(["gateway", "station-reservation", "billing-wallet", "energy-dispatch", "frontend"])
   name                 = "aegisvolt/${var.environment_name}/${each.key}"
@@ -150,6 +156,26 @@ resource "aws_eks_addon" "kube_proxy" {
 resource "aws_eks_addon" "vpc_cni" {
   cluster_name = aws_eks_cluster.main.name
   addon_name   = "vpc-cni"
+}
+
+resource "aws_eks_access_entry" "admin" {
+  for_each          = toset(var.admin_principal_arns)
+  cluster_name      = aws_eks_cluster.main.name
+  principal_arn     = each.key
+  kubernetes_groups = []
+  type              = "STANDARD"
+}
+
+resource "aws_eks_access_policy_association" "admin" {
+  for_each = aws_eks_access_entry.admin
+
+  cluster_name  = aws_eks_cluster.main.name
+  principal_arn = each.value.principal_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
 }
 
 data "tls_certificate" "eks" {

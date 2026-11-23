@@ -63,3 +63,13 @@ resource "aws_s3_bucket_public_access_block" "tf_state" {
   ignore_public_acls      = true
   restrict_public_buckets = true
 }
+
+output "state_bucket_name" {
+  description = "Name of the configured shared Terraform state bucket."
+  value       = aws_s3_bucket.tf_state.bucket
+}
+
+output "state_bucket_arn" {
+  description = "ARN of the configured shared Terraform state bucket."
+  value       = aws_s3_bucket.tf_state.arn
+}

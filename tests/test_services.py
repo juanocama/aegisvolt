@@ -56,7 +56,13 @@ def test_charge_replay_and_refund_replay_are_atomic(backend):
     assert billing.wallet(wallet_id)["balance"] == Decimal("75.00")
 
     def refund():
-        return billing.refund(first_charge["id"])
+        for _ in range(50):
+            try:
+                return billing.refund(first_charge["id"])
+            except HTTPException as error:
+                if error.status_code != 503:
+                    raise
+        raise AssertionError("Refund replay did not recover within the retry budget")
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         refunds = list(pool.map(lambda _: refund(), range(2)))

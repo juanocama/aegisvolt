@@ -10,6 +10,10 @@ variable "cluster_name" {
   type = string
 }
 
+variable "environment_name" {
+  type = string
+}
+
 locals {
   application_services = toset([
     "gateway",
@@ -21,7 +25,7 @@ locals {
 
 resource "aws_cloudwatch_log_group" "app" {
   for_each          = local.application_services
-  name              = "/aegisvolt/${var.prefix}/${each.key}"
+  name              = "/aegisvolt/${var.environment_name}/${each.key}"
   retention_in_days = var.log_retention_days
 }
 
