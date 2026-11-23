@@ -61,7 +61,12 @@ Exact operation list and contract gaps: `docs/GRAPHQL_CONTRACTS.md`.
 | Dockerfiles and Compose | Present, unverified end-to-end | Compose defines Floci, three services, gateway; no frontend service |
 | Terraform bootstrap / workspaces / modules | Improved, not deployment-ready | Root and bootstrap validate locally; one shared state-bucket pattern and environment keys, fixed cluster naming, optional EKS access entries, and normalized CloudWatch paths are present. Real placeholders, API integration, and live AWS planning remain blocked. |
 | EKS/ECR | Partial | EKS and repositories declared; no node group/full app workloads |
-| Kubernetes stable/canary | Partial | Only gateway manifests; canary ingress lacks a checked-in base ingress; script checks health/restarts, not required CloudWatch/traffic gates |
+| Kubernetes workloads | Present, locally rendered | Gateway plus three backend Deployments, four ClusterIP Services, ConfigMap, Namespace, ServiceAccounts, probes, resource bounds, and hardened container security contexts remain in root `k8s/` manifests |
+| Kubernetes environment overlays | Present, locally rendered | `k8s/overlays/{dev,test,prod}` set environment labels, environment tables, ECR paths, image SHA placeholder, service-account role ARN placeholders, and replica counts; locally asserted, no deployment has been performed |
+| Kubernetes canary routing | Partial / not deployed | Existing canary Ingress remains outside the root Kustomize graph; no verified stable/canary workloads, router, or request-level analysis is configured |
+| Kubernetes private API integration | Missing | API Gateway remains a regional HTTP API shell without route/integration/VPC Link/private execute-api endpoint wiring; ClusterIP Services remain internal only |
+| Kubernetes CI rendering | Present, locally validated | Root validation retains `Path("k8s").glob("*.yaml")`; CI also renders each checked-in overlay with `LoadRestrictionsNone` and asserts environment-specific resources/configuration, scoped to repository-controlled files |
+| Kubernetes log forwarding | Unverified / incomplete | CloudWatch log groups and IAM permissions exist, but no EKS pod log collector is declared in the inspected manifests |
 | Prefect | Partial | One gateway health check + SAGA counts; no three-environment cross-table audit |
 | PR CI | Partial | pytest, frontend build, Terraform fmt/init/validate, Compose config; no integration/E2E/plan/lint pipeline |
 | Environment promotion | Missing/partial | Push-based jobs do not enforce linear PR promotion and conditions require review |
