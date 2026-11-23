@@ -1,0 +1,93 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aegisvolt-config
+  namespace: aegisvolt
+data:
+  ENVIRONMENT: test
+  SAGA_TABLE: aegisvolt-test-sagas
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: aegisvolt
+spec:
+  replicas: 2
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: station-reservation
+  namespace: aegisvolt
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: station-reservation
+          env:
+            - name: TABLE_NAME
+              value: aegisvolt-test-stations
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing-wallet
+  namespace: aegisvolt
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: billing-wallet
+          env:
+            - name: TABLE_NAME
+              value: aegisvolt-test-wallets
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: energy-dispatch
+  namespace: aegisvolt
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: energy-dispatch
+          env:
+            - name: TABLE_NAME
+              value: aegisvolt-test-dispatch
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gateway
+  namespace: aegisvolt
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::CHANGE_ME_ACCOUNT_ID:role/test-aegisvolt-gateway-irsa
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: station-reservation
+  namespace: aegisvolt
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::CHANGE_ME_ACCOUNT_ID:role/test-aegisvolt-station-reservation-irsa
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: billing-wallet
+  namespace: aegisvolt
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::CHANGE_ME_ACCOUNT_ID:role/test-aegisvolt-billing-wallet-irsa
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: energy-dispatch
+  namespace: aegisvolt
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::CHANGE_ME_ACCOUNT_ID:role/test-aegisvolt-energy-dispatch-irsa
