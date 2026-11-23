@@ -11,8 +11,15 @@ data "aws_iam_openid_connect_provider" "github" {
   url = "https://token.actions.githubusercontent.com"
 }
 
+variable "github_oidc_subject_repository" {
+  description = "Repository part of the GitHub OIDC sub claim. GitHub's immutable format is owner@ownerId/repo@repoId; empty uses owner/repo."
+  type        = string
+  default     = ""
+}
+
 locals {
-  oidc_host = "token.actions.githubusercontent.com"
+  oidc_subject_repository = var.github_oidc_subject_repository != "" ? var.github_oidc_subject_repository : var.github_repository
+  oidc_host               = "token.actions.githubusercontent.com"
 }
 
 # PR gate: `terraform plan` for the PR's target workspace. Read-only; plans run
@@ -28,7 +35,7 @@ resource "aws_iam_role" "plan" {
       Condition = {
         StringEquals = {
           "${local.oidc_host}:aud" = "sts.amazonaws.com"
-          "${local.oidc_host}:sub" = "repo:${var.github_repository}:pull_request"
+          "${local.oidc_host}:sub" = "repo:${local.oidc_subject_repository}:pull_request"
         }
       }
     }]
@@ -56,7 +63,7 @@ resource "aws_iam_role" "deploy" {
       Condition = {
         StringEquals = {
           "${local.oidc_host}:aud" = "sts.amazonaws.com"
-          "${local.oidc_host}:sub" = "repo:${var.github_repository}:environment:${var.environment_name}"
+          "${local.oidc_host}:sub" = "repo:${local.oidc_subject_repository}:environment:${var.environment_name}"
         }
       }
     }]

@@ -217,3 +217,9 @@ variable "state_bucket" {
   type        = string
   default     = ""
 }
+
+variable "github_oidc_subject_repository" {
+  description = "Repository part of GitHub's OIDC sub claim (immutable format owner@ownerId/repo@repoId, as observed in CloudTrail). Empty uses github_repository."
+  type        = string
+  default     = ""
+}

@@ -71,5 +71,11 @@ receives external traffic.
    Environments `dev`, `test`, `prod` (deployment branch = same name) with
    variable `AWS_DEPLOY_ROLE_ARN=<terraform output github_deploy_role_arn>`.
 
+GitHub sends the OIDC `sub` claim in its immutable format
+`repo:<owner>@<ownerId>/<repo>@<repoId>:<context>` (for this repository
+`repo:juanocama@140413471/aegisvolt@1468028506:pull_request`, confirmed from the
+denied `AssumeRoleWithWebIdentity` event in CloudTrail). Trust policies must use
+that exact value (`github_oidc_subject_repository` in the tfvars).
+
 Until these exist, `terraform-plan` and `deploy` fail closed with an explicit
 message; they never fall back to another environment.

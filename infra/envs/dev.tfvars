@@ -20,3 +20,4 @@ cloudwatch_log_retention_days       = 1
 enable_dynamodb_deletion_protection = false
 github_repository                   = "juanocama/aegisvolt"
 state_bucket                        = "aegisvolt-tfstate-065656773005-us-east-1"
+github_oidc_subject_repository      = "juanocama@140413471/aegisvolt@1468028506"

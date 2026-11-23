@@ -84,6 +84,8 @@ module "github_actions_ecr" {
   environment_name  = terraform.workspace
   github_repository = var.github_repository
   region            = var.region
+
+  github_oidc_subject_repository = var.github_oidc_subject_repository
 }
 
 module "access_host" {
@@ -105,6 +107,8 @@ module "github_actions_cicd" {
   environment_name  = terraform.workspace
   github_repository = var.github_repository
   state_bucket      = var.state_bucket
+
+  github_oidc_subject_repository = var.github_oidc_subject_repository
 }
 
 # The deploy role needs kubectl access to apply manifests and run the canary.

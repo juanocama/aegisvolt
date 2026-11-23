@@ -23,8 +23,15 @@ data "aws_iam_openid_connect_provider" "github" {
   url = "https://token.actions.githubusercontent.com"
 }
 
+variable "github_oidc_subject_repository" {
+  description = "Repository part of the GitHub OIDC sub claim. GitHub's immutable format is owner@ownerId/repo@repoId; empty uses owner/repo."
+  type        = string
+  default     = ""
+}
+
 locals {
-  image_names = ["gateway", "station-reservation", "billing-wallet", "energy-dispatch", "frontend"]
+  oidc_subject_repository = var.github_oidc_subject_repository != "" ? var.github_oidc_subject_repository : var.github_repository
+  image_names             = ["gateway", "station-reservation", "billing-wallet", "energy-dispatch", "frontend"]
   repository_arns = {
     for name in local.image_names : name => "arn:${data.aws_partition.current.partition}:ecr:${var.region}:${data.aws_caller_identity.current.account_id}:repository/aegisvolt/${var.environment_name}/${name}"
   }
@@ -52,7 +59,7 @@ resource "aws_iam_role" "publisher" {
       Condition = {
         StringEquals = {
           "${local.oidc_host}:aud" = "sts.amazonaws.com"
-          "${local.oidc_host}:sub" = "repo:${var.github_repository}:environment:ecr-publish-${var.environment_name}"
+          "${local.oidc_host}:sub" = "repo:${local.oidc_subject_repository}:environment:ecr-publish-${var.environment_name}"
         }
       }
     }]
@@ -103,7 +110,7 @@ resource "aws_iam_role" "promoter" {
       Condition = {
         StringEquals = {
           "${local.oidc_host}:aud" = "sts.amazonaws.com"
-          "${local.oidc_host}:sub" = "repo:${var.github_repository}:environment:ecr-promote-${var.environment_name}"
+          "${local.oidc_host}:sub" = "repo:${local.oidc_subject_repository}:environment:ecr-promote-${var.environment_name}"
         }
       }
     }]
