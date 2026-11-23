@@ -6,6 +6,7 @@ metadata:
 data:
   ENVIRONMENT: dev
   SAGA_TABLE: aegisvolt-dev-sagas
+  FLAGS_TABLE: aegisvolt-dev-flags
   AWS_DEFAULT_REGION: us-east-1
 ---
 apiVersion: apps/v1
@@ -100,3 +101,19 @@ metadata:
   namespace: aegisvolt
 data:
   GRAPHQL_UPSTREAM_PATH: /dev/graphql
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gateway-private
+  namespace: aegisvolt
+  annotations:
+    alb.ingress.kubernetes.io/load-balancer-name: dev-aegisvolt-graphql
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend-private
+  namespace: aegisvolt
+  annotations:
+    alb.ingress.kubernetes.io/load-balancer-name: dev-aegisvolt-frontend

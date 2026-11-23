@@ -9,7 +9,9 @@ from urllib.parse import urlparse
 
 import boto3
 import httpx
+from botocore.exceptions import BotoCoreError, ClientError
 from prefect import flow, task
+from prefect.artifacts import create_markdown_artifact, create_table_artifact
 
 ENVIRONMENTS = ("dev", "test", "prod")
 SERVICE_NAMES = ("gateway", "station-reservation", "billing-wallet", "energy-dispatch")
@@ -177,9 +179,16 @@ def summarize_sagas(
             issues.append("pending_compensations")
         references = (
             ("reservation_id", "station-reservation", {"reserved", "cancelled"}),
-            ("charge_id", "billing-wallet", {"charged"}),
-            ("activation_id", "energy-dispatch", {"active", "failed"}),
+            ("charge_id", "billing-wallet", {"charged", "refunded"}),
+            ("activation_id", "energy-dispatch", {"active", "failed", "stopped"}),
         )
+        # State-specific invariants: a compensated SAGA must have returned the
+        # money and freed the connector; a completed one must still hold both.
+        required_status = {
+            "COMPENSATED": {"charge_id": {"refunded"}, "reservation_id": {"cancelled"}},
+            "COMPLETED": {"charge_id": {"charged"}, "reservation_id": {"reserved"}, "activation_id": {"active"}},
+            "STOPPED": {"reservation_id": {"cancelled"}, "activation_id": {"stopped"}},
+        }.get(state, {})
         # In-flight operations can legitimately lack downstream records. Validate
         # references after completion or when compensation has failed.
         validate_references = state in TERMINAL_STATES or state == "COMPENSATION_FAILED"
@@ -192,6 +201,8 @@ def summarize_sagas(
                 issues.append(f"missing_{field}_record")
             elif record.get("status") not in allowed_statuses:
                 issues.append(f"unexpected_{field}_status")
+            elif field in required_status and record.get("status") not in required_status[field]:
+                issues.append(f"{state.lower()}_saga_{field}_is_{record.get('status')}")
         if state == "COMPLETED" and not all(saga.get(field) for field in ("reservation_id", "charge_id", "activation_id")):
             issues.append("completed_saga_missing_step_reference")
         audits.append({
@@ -229,7 +240,11 @@ def audit_environment_sagas(
 ) -> dict:
     session = boto3.Session(region_name=region)
     dynamodb = session.resource("dynamodb", endpoint_url=aws_endpoint) if aws_endpoint else session.resource("dynamodb")
-    saga_items = _scan_all(dynamodb.Table(table_names["sagas"]))
+    try:
+        saga_items = _scan_all(dynamodb.Table(table_names["sagas"]))
+    except (ClientError, BotoCoreError) as error:
+        # An unreachable/undeployed environment is reported, never counted as zero SAGAs.
+        return {"environment": environment, "available": False, "error_type": type(error).__name__}
     service_records = _load_referenced_service_records(dynamodb, table_names, saga_items)
     orphan_audit_complete = full_orphan_scan
     if full_orphan_scan:
@@ -239,6 +254,7 @@ def audit_environment_sagas(
         }
     return {
         "environment": environment,
+        "available": True,
         **summarize_sagas(
             saga_items,
             service_records,
@@ -253,7 +269,11 @@ def publish_metrics(audits: list[dict], region: str, aws_endpoint: str | None) -
     session = boto3.Session(region_name=region)
     cloudwatch = session.client("cloudwatch", endpoint_url=aws_endpoint) if aws_endpoint else session.client("cloudwatch")
     for audit in audits:
-        metric_data = [
+        if not audit["available"]:
+            cloudwatch.put_metric_data(Namespace="AegisVolt/SAGA", MetricData=[{"MetricName": "AuditAvailable", "Value": 0, "Unit": "Count", "Dimensions": [{"Name": "Environment", "Value": audit["environment"]}]}])
+            continue
+        metric_data = [{"MetricName": "AuditAvailable", "Value": 1, "Unit": "Count", "Dimensions": [{"Name": "Environment", "Value": audit["environment"]}]}]
+        metric_data += [
             {"MetricName": "Sagas", "Value": count, "Unit": "Count", "Dimensions": [{"Name": "Environment", "Value": audit["environment"]}, {"Name": "State", "Value": state}]}
             for state, count in audit["counts_by_state"].items()
         ]
@@ -265,6 +285,53 @@ def publish_metrics(audits: list[dict], region: str, aws_endpoint: str | None) -
             metric_data.append({"MetricName": "OrphanServiceRecords", "Value": len(audit["orphan_service_records"]), "Unit": "Count", "Dimensions": [{"Name": "Environment", "Value": audit["environment"]}]})
         for offset in range(0, len(metric_data), 20):
             cloudwatch.put_metric_data(Namespace="AegisVolt/SAGA", MetricData=metric_data[offset:offset + 20])
+
+
+def artifact_rows(health: dict, audits: list[dict]) -> tuple[list[dict], list[dict]]:
+    health_rows = [
+        {"environment": env, "service": service, "healthy": result["healthy"], "detail": result.get("status_code", result.get("error_type"))}
+        for env, services in health.items()
+        for service, result in services.items()
+    ]
+    saga_rows = []
+    for audit in audits:
+        if not audit["available"]:
+            saga_rows.append({"environment": audit["environment"], "available": False, "total": None, "compensated": None,
+                              "failed_or_compensation_failed": None, "stale_in_progress": None, "inconsistent": None, "orphans": None})
+            continue
+        counts = audit["counts_by_state"]
+        saga_rows.append({
+            "environment": audit["environment"],
+            "available": True,
+            "total": sum(counts.values()),
+            "compensated": counts.get("COMPENSATED", 0),
+            "failed_or_compensation_failed": counts.get("FAILED", 0) + counts.get("COMPENSATION_FAILED", 0),
+            "stale_in_progress": sum("stale_non_terminal_state" in saga["issues"] for saga in audit["sagas"]),
+            "inconsistent": len(audit["inconsistent_sagas"]),
+            "orphans": len(audit["orphan_service_records"]) if audit["orphan_audit_complete"] else "not scanned",
+        })
+    return health_rows, saga_rows
+
+
+@task
+def publish_prefect_artifacts(health: dict, audits: list[dict]) -> None:
+    """Observability metrics visible in the Prefect UI (Artifacts tab of the run)."""
+    health_rows, saga_rows = artifact_rows(health, audits)
+    create_table_artifact(key="aegisvolt-environment-health", table=health_rows, description="Service /health per environment")
+    create_table_artifact(key="aegisvolt-saga-audit", table=saga_rows, description="SAGA consistency per environment")
+    unhealthy = [f"{r['environment']}/{r['service']}" for r in health_rows if not r["healthy"]]
+    create_markdown_artifact(
+        key="aegisvolt-audit-summary",
+        markdown="\n".join(
+            ["# AegisVolt audit", "", f"- Unhealthy services: {', '.join(unhealthy) or 'none'}"]
+            + [
+                f"- {r['environment']}: {r['total']} SAGAs, {r['compensated']} compensated, {r['inconsistent']} inconsistent"
+                if r["available"]
+                else f"- {r['environment']}: SAGA table unavailable"
+                for r in saga_rows
+            ]
+        ),
+    )
 
 
 @flow(name="AegisVolt environment audit")
@@ -289,5 +356,7 @@ def audit() -> dict:
         audit_environment_sagas(environment, values["tables"], endpoint, region, stale_after_seconds, full_orphan_scan)
         for environment, values in config.items()
     ]
-    publish_metrics(audits, region, endpoint)
+    publish_prefect_artifacts(health, audits)
+    if os.getenv("AEGISVOLT_PUBLISH_CLOUDWATCH", "true").strip().lower() == "true":
+        publish_metrics(audits, region, endpoint)
     return {"checked_at": datetime.now(timezone.utc).isoformat(), "health": health, "sagas": audits}

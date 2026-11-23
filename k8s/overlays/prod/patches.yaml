@@ -6,6 +6,8 @@ metadata:
 data:
   ENVIRONMENT: prod
   SAGA_TABLE: aegisvolt-prod-sagas
+  FLAGS_TABLE: aegisvolt-prod-flags
+  AWS_DEFAULT_REGION: us-east-1
 ---
 # Retains the existing base replica count; this is not production sizing
 # approval because the repository has no production load-test evidence.
@@ -93,3 +95,27 @@ metadata:
   namespace: aegisvolt
   annotations:
     eks.amazonaws.com/role-arn: arn:aws:iam::CHANGE_ME_ACCOUNT_ID:role/prod-aegisvolt-energy-dispatch-irsa
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+  namespace: aegisvolt
+data:
+  GRAPHQL_UPSTREAM_PATH: /prod/graphql
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gateway-private
+  namespace: aegisvolt
+  annotations:
+    alb.ingress.kubernetes.io/load-balancer-name: prod-aegisvolt-graphql
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: frontend-private
+  namespace: aegisvolt
+  annotations:
+    alb.ingress.kubernetes.io/load-balancer-name: prod-aegisvolt-frontend

@@ -1,58 +1,64 @@
+"""Deployment pipeline and canary wiring (spec 3.3, rubric 6.2)."""
+
 from pathlib import Path
 
+import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_canary_readiness_workflow_fails_closed_without_aws_access():
-    workflow = (ROOT / ".github/workflows/canary-readiness.yml").read_text()
-
-    assert "permissions:\n  contents: read" in workflow
-    assert "id-token: write" not in workflow
-    assert "EKS_PRIVATE_RUNNER_READY" in workflow
-    assert "CANARY_TRAFFIC_ROUTER_READY" in workflow
-    assert "CANARY_REQUEST_METRICS_READY" in workflow
-    assert "This workflow does not request AWS credentials or contact EKS." in workflow
-    assert "exit 1" in workflow
+def _workflow(name: str) -> dict:
+    return yaml.safe_load((ROOT / ".github/workflows" / name).read_text())
 
 
-def test_unverified_ingress_is_not_part_of_the_deployable_kustomize_base():
-    kustomization = (ROOT / "k8s/kustomization.yaml").read_text()
-    canary_ingress = (ROOT / "k8s/canary-service.yaml").read_text()
+def test_pr_pipeline_has_required_gates():
+    ci = _workflow("ci.yml")
+    triggers = ci.get("on") or ci.get(True)
+    assert triggers["pull_request"]["branches"] == ["dev", "test", "prod"]
+    for job in ("promotion-guard", "lint-build", "unit-tests", "integration-tests", "e2e-tests", "terraform-plan", "kubernetes"):
+        assert job in ci["jobs"], job
+    plan = ci["jobs"]["terraform-plan"]
+    script = "\n".join(step.get("run", "") for step in plan["steps"])
+    assert plan["env"]["TARGET_ENVIRONMENT"] == "${{ github.base_ref }}"
+    assert 'terraform workspace select "${TARGET_ENVIRONMENT}"' in script
+    assert "terraform plan" in script and "-lock=false" in script
 
-    assert "canary-service.yaml" not in kustomization
-    assert 'nginx.ingress.kubernetes.io/canary-weight: "10"' in canary_ingress
-    assert "Selected mechanism: none." in (
-        ROOT / "docs/PHASE4_CANARY_DEPLOYMENT_GUIDE.md"
-    ).read_text()
+
+def test_promotion_guard_enforces_linear_flow():
+    guard = _workflow("ci.yml")["jobs"]["promotion-guard"]["steps"][0]["run"]
+    assert 'test) [[ "$HEAD" == "dev" ]]' in guard
+    assert 'prod) [[ "$HEAD" == "test" ]]' in guard
+    assert "^(feature|fix|hotfix|chore|docs)/" in guard
+
+
+def test_post_merge_deploy_targets_only_the_merged_branch_workspace():
+    deploy = _workflow("deploy.yml")
+    triggers = deploy.get("on") or deploy.get(True)
+    assert triggers["push"]["branches"] == ["dev", "test", "prod"]
+    job = deploy["jobs"]["deploy"]
+    assert job["env"]["TARGET_ENVIRONMENT"] == "${{ github.ref_name }}"
+    assert job["environment"]["name"] == "${{ github.ref_name }}"
+    script = "\n".join(step.get("run", "") for step in job["steps"])
+    assert 'terraform workspace select "${TARGET_ENVIRONMENT}"' in script
+    assert "terraform apply -input=false -auto-approve" in script
+    assert "scripts/canary_deploy.py" in script and "--weight 20" in script
+
+
+def test_canary_pair_and_weighted_router_are_part_of_every_overlay():
+    for kustomization in ("k8s/kustomization.yaml", *(f"k8s/overlays/{e}/kustomization.yaml" for e in ("dev", "test", "prod"))):
+        text = (ROOT / kustomization).read_text()
+        assert "gateway-canary.yaml" in text and "gateway-ingress.yaml" in text, kustomization
+    assert not (ROOT / "k8s/canary-service.yaml").exists()
 
 
 def test_services_and_gateway_expose_health_used_by_internal_alb():
-    service_apps = (
+    for relative_path in (
         "services/station-reservation/app.py",
         "services/billing-wallet/app.py",
         "services/energy-dispatch/app.py",
-    )
-    for relative_path in service_apps:
-        source = (ROOT / relative_path).read_text()
-        assert '@app.get("/health")' in source
-
-    # Phase 4: the internal ALB health-checks the GraphQL gateway on /health.
-    gateway = (ROOT / "gateway/app.py").read_text()
-    assert '@app.get("/health")' in gateway
+        "gateway/app.py",
+    ):
+        assert '@app.get("/health")' in (ROOT / relative_path).read_text()
     ingress = (ROOT / "k8s/gateway-ingress.yaml").read_text()
     assert "alb.ingress.kubernetes.io/healthcheck-path: /health" in ingress
     assert "alb.ingress.kubernetes.io/scheme: internal" in ingress
-
-
-def test_kubernetes_traffic_path_has_no_canary_pair_or_router_resource():
-    kustomization = (ROOT / "k8s/kustomization.yaml").read_text()
-    resources = [line.strip()[2:] for line in kustomization.splitlines() if line.strip().startswith("- ")]
-    assert "canary-service.yaml" not in resources
-
-    for relative_path in (
-        "k8s/gateway-deployment.yaml",
-        "k8s/gateway-service.yaml",
-    ):
-        assert "track:" not in (ROOT / relative_path).read_text()
-

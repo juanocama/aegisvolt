@@ -106,16 +106,24 @@ query FeatureFlags {
 }
 ```
 
-Returns the read-only official names
-`ENABLE_DYNAMIC_SURGE_PRICING`, `ENABLE_FAST_CHARGE_BOOST`, and
-`SIMULATE_CHARGER_HARDWARE_FAULT`. Values are boolean process configuration,
-default to `false`, and accept `true`/`false` (or `1`/`0`). Invalid values
-produce a GraphQL error rather than silently defaulting. Each gateway reads
-only its own process environment; there is no environment argument, persistent
-flag store, or flag mutation. The hardware-fault flag gates the existing
-per-request `chargeFault` test input. Surge-pricing and fast-charge flags are
-reported but have no pricing/boost effect until their business rules are
-approved and implemented.
+Returns the official names `ENABLE_DYNAMIC_SURGE_PRICING`,
+`ENABLE_FAST_CHARGE_BOOST`, and `SIMULATE_CHARGER_HARDWARE_FAULT` for the
+gateway's own environment. In deployed environments (and Compose) the source is
+the per-environment DynamoDB table `aegisvolt-<env>-flags` (`FLAGS_TABLE`), one
+item `{id, enabled: BOOL}` per flag, re-read at most every `FLAG_CACHE_SECONDS`
+(default 5). Operators change a flag at runtime with
+`scripts/set_feature_flag.py` -- no redeploy -- and each environment's table is
+isolated (a table name for another environment is rejected). A missing item, a
+non-boolean value or an unreadable table is a GraphQL error, never a silent
+default. Without `FLAGS_TABLE` (unit tests) values come from process
+environment variables. There is no flag mutation in the GraphQL API.
+
+While `SIMULATE_CHARGER_HARDWARE_FAULT` is enabled, every
+`reserveAndActivateCharge` in that environment fails at physical activation
+and compensates (refund, then release) -- spec 2.3. The `chargeFault` argument
+is retained for schema compatibility only and cannot inject a fault by itself.
+Surge-pricing and fast-charge flags are reported but have no pricing/boost
+effect until their business rules are approved and implemented.
 
 ### SAGA summaries
 
@@ -296,7 +304,6 @@ development values. Services derive their default table names from
 `ENVIRONMENT`, and reject configured table names that do not contain the
 active environment token. Independent test/prod deployments are not present
 in this repository and must provide separate gateway processes, service
-processes, tables, and flag environment values. Changing deployment
-configuration requires restarting/replacing the process. The existing
-`chargeFault` input only requests a simulated fault when
-`SIMULATE_CHARGER_HARDWARE_FAULT` is enabled.
+processes, tables, and flag tables. Flag changes do not require a restart; the
+environment's `SIMULATE_CHARGER_HARDWARE_FAULT` value alone decides fault
+injection (`chargeFault` is a deprecated no-op).

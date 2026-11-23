@@ -190,3 +190,14 @@ deployment; those operations still require separate approval.
 - Live run found and fixed: billing IAM `UpdateItem`, CloudWatch agent crash-loop, REST API policy drift, nginx TLS verify depth, dev overlay region/ingress gaps.
 - Teardown independently verified; only the Terraform state bucket remains. No commit/push performed.
 - Remaining: Client VPN not implemented (SSM port forwarding documented as substitute); full local pytest still blocked by Windows hang.
+
+## Phase 5 rubric completion (branch `feature/phase-5-rubric-completion`, 2026-11-23)
+
+Authority: official PDF (`Proyecto Final - Patrones Arquitectónicos Avanzados (AegisVolt)`), which does not require a VPN; Session Manager remains the private access path.
+
+- Feature flags moved to per-environment DynamoDB tables `aegisvolt-<env>-flags` (Terraform-seeded, runtime toggle via `scripts/set_feature_flag.py`, no redeploy). `SIMULATE_CHARGER_HARDWARE_FAULT` alone forces activation failure and compensation (spec 2.3); `chargeFault` is a deprecated no-op. Frontend shows a fault warning instead of a per-request checkbox.
+- Logs routed by Fluent Bit to `/aegisvolt/<env>/<service>` (config validated with `fluent-bit --dry-run`); metric filters, 5xx alarm and dashboard per environment.
+- Prefect flow publishes table/markdown artifacts, reports unavailable environments explicitly, and checks state-specific SAGA invariants; run recorded on the project Prefect server (Compose profile `observability`, port 4201).
+- CI rewritten: promotion-guard, lint-build, unit-tests, integration-tests, e2e-tests (Compose), terraform-static, terraform-plan (target-branch workspace, OIDC read-only role), kubernetes. Post-merge `deploy.yml`: branch → workspace apply, SHA images, SSM tunnel, LBC, canary 20% with CloudWatch gate and auto rollback, post-deploy E2E.
+- Fixed pre-existing defects: kubeconform schema URL (404) and arm64-only image digest; refund replay returning stale `charged`; flaky log-privacy assertion; Prefect false positives for refunded/stopped records; ALB names colliding across environments.
+- Verification: pytest full suite in Linux container; Compose E2E 6/6; kubeconform strict 84/84; CI kubernetes validators; terraform fmt/validate; actionlint; frontend lint/test/build. No Terraform was applied in this phase (per user instruction).

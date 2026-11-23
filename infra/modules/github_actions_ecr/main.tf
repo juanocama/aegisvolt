@@ -24,7 +24,7 @@ data "aws_iam_openid_connect_provider" "github" {
 }
 
 locals {
-  image_names = ["gateway", "station-reservation", "billing-wallet", "energy-dispatch"]
+  image_names = ["gateway", "station-reservation", "billing-wallet", "energy-dispatch", "frontend"]
   repository_arns = {
     for name in local.image_names : name => "arn:${data.aws_partition.current.partition}:ecr:${var.region}:${data.aws_caller_identity.current.account_id}:repository/aegisvolt/${var.environment_name}/${name}"
   }

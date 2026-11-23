@@ -67,3 +67,18 @@ output "access_host_instance_id" {
   description = "Session Manager access host instance ID, or null when disabled."
   value       = try(module.access_host[0].instance_id, null)
 }
+
+output "github_plan_role_arn" {
+  description = "OIDC role for PR terraform plan (null when github_repository is empty)."
+  value       = try(module.github_actions_cicd[0].plan_role_arn, null)
+}
+
+output "github_deploy_role_arn" {
+  description = "OIDC role for the post-merge deploy of this workspace."
+  value       = try(module.github_actions_cicd[0].deploy_role_arn, null)
+}
+
+output "service_log_group_names" {
+  description = "Per-environment, per-service CloudWatch log groups."
+  value       = module.observability.service_log_group_names
+}

@@ -15,4 +15,5 @@ FROM nginxinc/nginx-unprivileged:1.29-alpine
 COPY nginx/default.conf.template /etc/nginx/templates/default.conf.template
 COPY --chmod=755 nginx/10-require-upstream.sh /docker-entrypoint.d/10-require-upstream.sh
 COPY --from=build /src/dist /usr/share/nginx/html
+ENV GRAPHQL_UPSTREAM_SCHEME=https
 EXPOSE 8080

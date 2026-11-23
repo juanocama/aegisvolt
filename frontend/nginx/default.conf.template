@@ -13,7 +13,7 @@ server {
     # private API Gateway (execute-api VPC endpoint) -> VPC Link -> GraphQL ALB.
     location = /graphql {
         limit_except POST { deny all; }
-        proxy_pass https://${GRAPHQL_UPSTREAM_HOST}${GRAPHQL_UPSTREAM_PATH};
+        proxy_pass ${GRAPHQL_UPSTREAM_SCHEME}://${GRAPHQL_UPSTREAM_HOST}${GRAPHQL_UPSTREAM_PATH};
         proxy_ssl_server_name on;
         proxy_ssl_name ${GRAPHQL_UPSTREAM_HOST};
         proxy_ssl_verify on;

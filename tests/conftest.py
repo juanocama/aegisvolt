@@ -19,7 +19,31 @@ os.environ.pop("AWS_ENDPOINT_URL", None)
 _aws = mock_aws()
 
 
+def _serialize_moto_transactions():
+    """Moto 5 snapshots *all* tables with deepcopy and restores that snapshot
+    when a TransactWriteItems fails, without any lock. Under concurrent threads
+    a failing transaction can therefore undo another thread's committed one,
+    which real DynamoDB (serializable transactions) never does. Serialize them
+    so concurrency tests exercise the application, not this emulator race."""
+    import threading
+
+    from moto.dynamodb.models import DynamoDBBackend
+
+    original = DynamoDBBackend.transact_write_items
+    if getattr(original, "_aegisvolt_serialized", False):
+        return
+    lock = threading.Lock()
+
+    def serialized(self, transact_items):
+        with lock:
+            return original(self, transact_items)
+
+    serialized._aegisvolt_serialized = True
+    DynamoDBBackend.transact_write_items = serialized
+
+
 def pytest_sessionstart(session):
+    _serialize_moto_transactions()
     _aws.start()
     import boto3
 

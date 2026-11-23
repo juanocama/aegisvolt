@@ -33,6 +33,7 @@ module "dynamodb" {
   source                     = "./modules/dynamodb"
   prefix                     = local.table_prefix
   enable_deletion_protection = var.enable_dynamodb_deletion_protection
+  initial_feature_flags      = var.initial_feature_flags[terraform.workspace]
 }
 
 module "observability" {
@@ -41,6 +42,7 @@ module "observability" {
   environment_name   = terraform.workspace
   cluster_name       = local.cluster_name
   log_retention_days = var.cloudwatch_log_retention_days
+  region             = var.region
 }
 
 module "api_gateway" {
@@ -93,4 +95,32 @@ module "access_host" {
   vpc_cidr                  = module.network.vpc_cidr
   subnet_id                 = module.network.private_subnet_ids[0]
   cluster_security_group_id = module.eks_ecr.cluster_security_group_id
+}
+
+module "github_actions_cicd" {
+  count  = var.github_repository == "" ? 0 : 1
+  source = "./modules/github_actions_cicd"
+
+  prefix            = local.prefix
+  environment_name  = terraform.workspace
+  github_repository = var.github_repository
+  state_bucket      = var.state_bucket
+}
+
+# The deploy role needs kubectl access to apply manifests and run the canary.
+resource "aws_eks_access_entry" "github_deploy" {
+  count         = var.github_repository == "" ? 0 : 1
+  cluster_name  = module.eks_ecr.cluster_name
+  principal_arn = module.github_actions_cicd[0].deploy_role_arn
+  type          = "STANDARD"
+}
+
+resource "aws_eks_access_policy_association" "github_deploy" {
+  count         = var.github_repository == "" ? 0 : 1
+  cluster_name  = module.eks_ecr.cluster_name
+  principal_arn = aws_eks_access_entry.github_deploy[0].principal_arn
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+  access_scope {
+    type = "cluster"
+  }
 }

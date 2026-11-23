@@ -1,38 +1,38 @@
 # Requirements Traceability
 
-**Authority:** `Proyecto Final - Patrones Arquitectónicos Avanzados (AegisVolt).docx`.
+**Authority:** `Proyecto Final - Patrones Arquitectónicos Avanzados (AegisVolt)` (PDF provided 2026-11-23; same content as the DOCX).
 Status reflects repository inspection on 2026-11-23. `Partial` means code exists
 but does not demonstrate the complete requirement; `Missing` means not found;
 `Unverified` means a declaration exists but execution has not been demonstrated.
 
-| ID | Official requirement | Current evidence | Status | Gap / next validation |
+| ID | Official requirement | Current evidence | Status | Remaining gap |
 |---|---|---|---|---|
-| REQ-BIZ-01 | EV fleet charging platform; reserve, authorize funds, activate energy, audit telemetry | Three FastAPI services and GraphQL gateway; activation and simulated telemetry state persist | Partial | Business models remain demo-level; telemetry is not measured hardware data and has no timestamp/history; run against local stack |
-| REQ-UI-01 | Real-time station and connector status | UI polls every 4 s; real station data, connector-lock state, and telemetry snapshot are displayed | Partial | Polling is not push live data; only one hard-coded station/connector exists and there is no telemetry history |
-| REQ-UI-02 | UI flow to reserve and activate charge | Four-screen UI sends the exact reserve mutation with a real selected connector, positive amount validation, and idempotency-key retention | Present for contract | Hardware fault remains dev-only demo input; session stop and reservation-only flows remain unimplemented |
-| REQ-UI-03 | Show feature flags for selected environment | Read-only official flags are displayed from the GraphQL gateway | Partial | Only local `dev` is provisioned; no test/prod endpoints or flag mutation; pricing/boost flags do not yet change behavior |
-| REQ-UI-04 | Show transaction history and compensations | SAGA summary table and guarded `COMPENSATION_FAILED` retry are integrated | Partial | No event timeline, compensation attempt counts, filtering, sorting, pagination, or timestamps |
-| REQ-BE-01 | Unified GraphQL API: station/telemetry queries and reservation/payment/session mutations | Strawberry gateway has station, telemetry, wallet, flags, SAGA queries, charge activation/retry, and dev stop/release mutations | Partial | No flag mutation or production session stop/compensation contract; query fields lack paging/detail |
-| REQ-BE-02 | At least three independent Dockerized services deployed on Kubernetes | Three service Dockerfiles; root Kustomize includes gateway and all three backend Deployments and Services; dev/test/prod overlays render the four workloads | Partial | No EKS deployment or runtime behavior is verified; API/private network integration and configured cluster access remain blockers |
-| REQ-FLAG-01 | Independent environment feature flags for surge, fast-charge boost, simulated hardware fault | Exact official names are read-only process values; hardware-fault request injection is gated by the corresponding flag | Partial | Local Compose is dev only; no persisted flag control plane; surge/boost behavior needs approved rules |
-| REQ-SAGA-01 | Reserve -> debit -> activate across three services | Gateway orchestrates all three; step state is persisted; service operations are idempotent | Partial | Moto/in-process integration passes, but Docker/Floci/AWS end-to-end behavior remains unverified |
-| REQ-SAGA-02 | On activation failure refund then release connector | Refund is confirmed before release; failure and pending compensation are persisted; retry is state-guarded | Partial | Event log is stored on the SAGA item but not exposed through GraphQL; no background recovery worker |
-| REQ-SAGA-03 | On insufficient funds release reservation | HTTP 402 is treated as a business failure; release must return confirmed `cancelled` before SAGA becomes compensated | Partial | Real downstream runtime is not available in this environment |
-| REQ-IAC-01 | Terraform modules for cloud infrastructure | Root modules and bootstrap exist | Partial | Modules are minimal; Terraform executable unavailable during prior verification; validate and plan before claim |
-| REQ-IAC-02 | S3 remote state with versioning/backups | Bootstrap defines versioning; root has S3 backend block | Partial/unverified | Backend HCL uses three `CHANGE_ME` buckets while bootstrap creates one supplied bucket; reconcile names, locking, workspace key, and bootstrap/apply sequence |
-| REQ-IAC-03 | Separate Terraform workspaces `dev/test/prod`, names include workspace | `local.prefix` uses `terraform.workspace`; backend/env files exist | Partial | No workspace guard/validation; identical tfvars; workflow path mismatch and no plan gate by PR target |
-| REQ-IAC-04 | VPC with public/private subnets and private endpoints to API Gateway, cluster, S3, DynamoDB, CloudWatch | VPC has public/private subnets, S3/DynamoDB gateway endpoints, interface endpoints including `execute-api` and `eks-auth`; private REST API is restricted by `aws:SourceVpce` | Partial | Private API Gateway and ALB integration are declared; actual ALB values, LBC installation, route reachability and AWS plan remain unverified |
-| REQ-DATA-01 | DynamoDB only, database per service, isolated per environment | Services use separate tables; default names derive from `ENVIRONMENT`, and explicit names must include the active environment token | Partial | Only dev Compose tables are configured; test/prod deployments and Terraform-to-service naming are not verified |
-| REQ-OBS-01 | Structured CloudWatch logs per environment/service with SAGA correlation id | FastAPI request middleware writes JSON metadata with environment/service/correlation ID; CloudWatch Observability add-on and retained Container Insights log groups are declared | Partial | EKS add-on has not been installed/validated; shared application log group uses Kubernetes metadata/stream names to distinguish workloads; verify field parsing and cost in AWS |
-| REQ-OBS-02 | Prefect health of three environments, audit orphan/inconsistent/compensated SAGA, dashboard metrics | Prefect requires explicit private dev/test/prod endpoints and table names, checks gateway/services, paginates the SAGA scan, batch-reads referenced service records, uses a configurable stale threshold, and marks full orphan detection explicitly incomplete unless enabled | Partial | Key-only DynamoDB schema still requires full SAGA scans; orphan sweeps are opt-in pending an incremental index/cursor design; Prefect network/IAM, live execution, CloudWatch metrics/dashboard remain unverified |
-| REQ-CI-01 | Protected dev/test/prod branches; no direct/force push | `scripts/set_branch_protection.ps1` prints a suggested command | Missing/unverified | Script does not configure protection; apply and verify host rules for all three required branches |
-| REQ-CI-02 | feature -> dev -> test -> prod linear PR promotion | Deploy workflow triggers on environment branch pushes | Missing | Rework gating to promotion-only; current conditions can skip dependencies or bypass intended ordering |
-| REQ-CI-03 | PR checks: lint/build, unit/integration/E2E, Terraform plan | PR workflow does pytest, frontend build, Terraform fmt/init/validate, Compose config | Partial | No separate integration/E2E suites or Terraform plan; npm lint omitted |
-| REQ-CI-04 | Post-merge apply only target environment | Workflow has three jobs, each with init/apply | Partial | Job conditions/dependencies need correction; backend HCL path must be tested; no PR promotion proof |
-| REQ-DEPLOY-01 | Canary 10-20% traffic, health/CloudWatch error checks, promote or rollback | K8s ingress weight 10; script checks rollout and restarts | Partial | No checked-in base ingress, CloudWatch/error threshold, traffic verification, or promotion/rollback procedure in pipeline |
-| REQ-DEPLOY-02 | No downtime during rollout | Gateway stable/canary resources present | Unverified | Need service selector/ingress and rollout test under load |
-| REQ-TEST-01 | Unit, integration, end-to-end tests across layers | 16 Phase 1 tests cover GraphQL over FastAPI, all three in-process services, Moto persistence, failure compensation, concurrency, and retries | Partial | Tests do not exercise Docker/Floci/live AWS or browser workflows |
-| REQ-DOC-01 | Explain architecture and defend design choices | README, architecture/decision/deployment/defense docs, and expanded planning documents | Partial | Documentation set now includes requirements and handoff; implementation evidence and validated deployment/runbook still need completion |
+| REQ-BIZ-01 | Reserve bays, authorize funds, activate energy, audit telemetry | Three FastAPI services + GraphQL gateway; live AWS dev E2E (2026-11-23) and Compose E2E | Implemented | Telemetry is simulated state (no hardware/history) |
+| REQ-UI-01 | Real-time station/connector status | React polls every 4 s; Compose E2E serves SPA through nginx | Implemented (polling) | No WebSocket/subscription |
+| REQ-UI-02 | Reserve-and-activate flow triggering the SAGA | Stations page mutation; E2E happy path/replay/stop | Implemented | — |
+| REQ-UI-03 | Flags per environment visible | Flags page reads per-env DynamoDB flags; fault warning in charge flow | Implemented | — |
+| REQ-UI-04 | Transaction history and compensation state | SAGA table + guarded retryCompensation | Implemented (summary) | No event timeline/timestamps in GraphQL |
+| REQ-BE-01 | Unified GraphQL (queries stations/telemetry; mutations reserve/pay/session) | Strawberry schema; snapshot gate in `lint-build` | Implemented | No paging |
+| REQ-BE-02 | ≥3 Dockerized services on Kubernetes | 5 images; deployed and verified on EKS 1.37 (dev) | Implemented | test/prod not provisioned (cost) |
+| REQ-FLAG-01 | Independent per-environment flags (DynamoDB/AppConfig/…) | `aegisvolt-<env>-flags` tables (Terraform, seeded, ignore_changes); runtime toggle without redeploy; isolation tests; E2E toggle | Implemented | Surge/boost have no business rule (display only) |
+| REQ-SAGA-01 | Reserve → debit → activate | Orchestrated in gateway, persisted steps, idempotent services; AWS E2E | Implemented | — |
+| REQ-SAGA-02 | Activation failure (or fault flag) → refund then release | Flag alone triggers fault; refund atomic then release; integration + E2E | Implemented | — |
+| REQ-SAGA-03 | Insufficient funds → release | 402 → release; integration + E2E | Implemented | — |
+| REQ-IAC-01 | All infra in Terraform modules | network, dynamodb, observability, api_gateway, eks_ecr, access_host, github_actions_*; apply/destroy evidence | Implemented | State bucket created by CLI bootstrap (documented) |
+| REQ-IAC-02 | S3 remote state with versioning | `aegisvolt-tfstate-…` versioned, encrypted, lockfile; 38 dev state versions | Implemented | — |
+| REQ-IAC-03 | One workspace per env, names from `terraform.workspace` | workspace guard; `env:/dev/…` state key; tfvars for dev/test/prod | Implemented | test/prod never applied |
+| REQ-IAC-04 | VPC public/private subnets; VPCE to API GW and cluster; S3/DynamoDB/CloudWatch endpoints | execute-api, eks-auth, ecr, sts, logs, monitoring, ec2, elb interface + S3/DynamoDB gateway endpoints; private API + VPC Link + internal ALB verified live | Implemented | — |
+| REQ-DATA-01 | DynamoDB only, database per service, per env | `aegisvolt-<env>-{stations,wallets,dispatch,sagas,flags}` | Implemented | — |
+| REQ-OBS-01 | JSON logs with correlation_id/env/service in `/aegisvolt/<env>/…` | Request middleware; Fluent Bit routes to `/aegisvolt/<env>/<service>` (config dry-run validated); metric filters, alarm, dashboard; correlation id traced live in CloudWatch | Implemented | New log-group routing not yet exercised in AWS (dev ran with Container Insights groups) |
+| REQ-OBS-02 | Prefect flows: health of 3 envs, SAGA audit (orphan/compensated), metrics in Prefect dashboard | Flow + tasks; Prefect artifacts (health, SAGA audit, summary); CloudWatch metrics; run against local Prefect server | Implemented | Live run against AWS envs needs private connectivity |
+| REQ-CI-01 | Protected dev/test/prod (no force/direct push, required checks) | GitHub rules configured by the owner; required check names documented | Implemented (GitHub settings) | — |
+| REQ-CI-02 | Linear feature → dev → test → prod | `promotion-guard` job | Implemented | — |
+| REQ-CI-03 | PR: lint/build, unit, integration, e2e, terraform plan by target workspace | `ci.yml` jobs with those names | Implemented | `terraform-plan` needs OIDC bootstrap + repo variables |
+| REQ-CI-04 | Post-merge apply only for merged branch | `deploy.yml` (`github.ref_name` → workspace, env-scoped OIDC role) | Implemented | Needs OIDC bootstrap; not yet executed in GitHub |
+| REQ-DEPLOY-01 | Canary 10–20 %, CloudWatch error gate, promote or auto-rollback | Weighted ALB target groups, `canary_deploy.py`, metric filters, unit-tested gate | Implemented | Not yet executed against a live cluster |
+| REQ-DEPLOY-02 | No downtime | maxUnavailable 0 + readiness probes; canary for gateway | Implemented | — |
+| REQ-TEST-01 | Unit, integration, E2E | 56+ pytest tests (Linux), 6 E2E (Compose), frontend Vitest | Implemented | — |
+| REQ-DOC-01 | Explain and defend design | `docs/DEFENSE_GUIDE.md`, `docs/CICD_PIPELINE.md`, deployment evidence | Implemented | — |
 
 ## Phase 0 runtime evidence
 
@@ -103,3 +103,16 @@ locally verifiable rubric excerpt:
 | Observability and presentation | 20% | One Prefect health/count flow and minimal UI; correlated CloudWatch and full UI states are missing |
 
 These are defense topics requiring live evidence, not merely files in the tree.
+
+## Official rubric (PDF, section 5.2) — supersedes the weights above
+
+| Layer | Weight |
+|---|---|
+| IaC (Terraform, workspaces, S3 backups, VPC/VPCE, DynamoDB) | 30 % |
+| CI/CD, Git governance, static environments, canary | 25 % |
+| Backend, microservices, Kubernetes, GraphQL, SAGA, feature flags | 25 % |
+| Observability (CloudWatch + Prefect) | 12 % |
+| Frontend | 8 % |
+
+Question bank answers and demo commands: [DEFENSE_GUIDE.md](./DEFENSE_GUIDE.md).
+The PDF does not mention a VPN; private access uses Session Manager tunnels.
