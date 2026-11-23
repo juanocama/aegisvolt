@@ -10,6 +10,4 @@ data:
   BILLING_URL: http://billing-wallet:8002
   DISPATCH_URL: http://energy-dispatch:8003
   SAGA_TABLE: aegisvolt-dev-sagas
-  ENABLE_DYNAMIC_SURGE_PRICING: "false"
-  ENABLE_FAST_CHARGE_BOOST: "false"
-  SIMULATE_CHARGER_HARDWARE_FAULT: "false"
+  FLAGS_TABLE: aegisvolt-dev-flags

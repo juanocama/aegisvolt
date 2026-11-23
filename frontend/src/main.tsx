@@ -228,6 +228,7 @@ export function App() {
             loading={loading}
             error={errors.stations}
             selectedEnvironment={selectedEnvironment}
+            hardwareFaultEnabled={flags.some((flag) => flag.name === "SIMULATE_CHARGER_HARDWARE_FAULT" && flag.enabled)}
             onComplete={refresh}
           />
         )}
@@ -327,7 +328,7 @@ function SagasPage({
 function FlagsPage({ flags, loading, error }: { flags: FeatureFlag[]; loading: boolean; error?: string }) {
   return (
     <>
-      <div className="page-heading"><div><p className="eyebrow">Read-only process configuration</p><h1>Feature flags</h1></div></div>
+      <div className="page-heading"><div><p className="eyebrow">Per-environment state (DynamoDB), refreshed every few seconds</p><h1>Feature flags</h1></div></div>
       {loading && flags.length === 0 && <LoadingState label="Loading feature flags…" />}
       {error && <div role="alert" className="inline-error">{error}</div>}
       {flags.length === 0 ? <EmptyState label="No feature flags returned." /> : (
@@ -339,7 +340,7 @@ function FlagsPage({ flags, loading, error }: { flags: FeatureFlag[]; loading: b
           ))}
         </div>
       )}
-      <div className="notice">Feature flags are process-level and read-only. No flag editing mutation exists. Surge pricing and fast-charge boost have no implemented behavior until rules are approved.</div>
+      <div className="notice">Each environment reads its own flags table (aegisvolt-&lt;env&gt;-flags). Operators change a flag at runtime with scripts/set_feature_flag.py; this view updates without redeploying. SIMULATE_CHARGER_HARDWARE_FAULT forces the activation step to fail so the SAGA compensation is visible. Surge pricing and fast-charge boost are displayed only; their pricing/priority rules are not implemented.</div>
     </>
   );
 }
@@ -455,6 +456,7 @@ function StationsPage({
   loading,
   error,
   selectedEnvironment,
+  hardwareFaultEnabled,
   onComplete,
 }: {
   stations: Station[];
@@ -463,13 +465,13 @@ function StationsPage({
   loading: boolean;
   error?: string;
   selectedEnvironment: Environment;
+  hardwareFaultEnabled: boolean;
   onComplete: () => Promise<void>;
 }) {
   const [selectedStationId, setSelectedStationId] = useState("");
   const [selectedConnectorId, setSelectedConnectorId] = useState("");
   const [amount, setAmount] = useState("25");
   const [walletId, setWalletId] = useState(DEMO_WALLET_ID);
-  const [fault, setFault] = useState(false);
   const [idempotencyKey, setIdempotencyKey] = useState(() => crypto.randomUUID());
   const [submitting, setSubmitting] = useState(false);
   const [fieldError, setFieldError] = useState("");
@@ -542,7 +544,6 @@ function StationsPage({
         connectorId: selectedConnector.id,
         amount: numericAmount,
         idempotencyKey,
-        chargeFault: fault,
       });
       const result = data.reserveAndActivateCharge;
       setOutcome({
@@ -618,7 +619,9 @@ function StationsPage({
             <label>Wallet ID<input value={walletId} onChange={(event) => setWalletId(event.target.value)} /></label>
             <small className="muted">Demo wallet: {DEMO_WALLET_ID}</small>
             <label>Amount <span className="field-meta">{wallet?.currency ?? "currency unavailable"}</span><input type="number" min="0" step="any" value={amount} onChange={(event) => setAmount(event.target.value)} /></label>
-            <label className="checkbox-row"><input type="checkbox" checked={fault} disabled={selectedEnvironment !== "dev"} onChange={(event) => setFault(event.target.checked)} />Simulate charger fault <small>dev demo control only</small></label>
+            {hardwareFaultEnabled && (
+              <div role="status" className="notice notice-warning">SIMULATE_CHARGER_HARDWARE_FAULT is enabled in {selectedEnvironment}: activation will fail and the SAGA will refund and release the connector.</div>
+            )}
             <div className="selected-summary"><span>Selected</span><strong>{selectedStation?.name ?? "No station"} · {selectedConnector?.id ?? "No connector"}</strong></div>
             {fieldError && <div className="inline-error" role="alert">{fieldError}</div>}
             {outcome && (

@@ -50,13 +50,47 @@ services:
       STATION_URL: http://station-reservation:8001
       BILLING_URL: http://billing-wallet:8002
       DISPATCH_URL: http://energy-dispatch:8003
-      ENABLE_DYNAMIC_SURGE_PRICING: ${ENABLE_DYNAMIC_SURGE_PRICING:-false}
-      ENABLE_FAST_CHARGE_BOOST: ${ENABLE_FAST_CHARGE_BOOST:-false}
-      SIMULATE_CHARGER_HARDWARE_FAULT: ${SIMULATE_CHARGER_HARDWARE_FAULT:-true}
+      FLAGS_TABLE: aegisvolt-dev-flags
+      FLAG_CACHE_SECONDS: "1"
       AWS_ENDPOINT_URL: http://floci:4566
       AWS_DEFAULT_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
       AWS_SECRET_ACCESS_KEY: test
       SAGA_TABLE: aegisvolt-dev-sagas
     ports: ["8010:8000"]
-    depends_on: [station-reservation, billing-wallet, energy-dispatch]
+    depends_on:
+      station-reservation: {condition: service_started}
+      billing-wallet: {condition: service_started}
+      energy-dispatch: {condition: service_started}
+      flags-seed: {condition: service_completed_successfully}
+  # Creates/seeds the emulated per-environment flags table (Terraform owns it in AWS).
+  flags-seed:
+    build:
+      context: .
+      dockerfile: gateway/Dockerfile
+    command: ["python", "scripts/set_feature_flag.py", "--env", "dev", "--seed-local"]
+    volumes: ["./scripts:/app/scripts:ro"]
+    environment:
+      ENVIRONMENT: dev
+      AWS_ENDPOINT_URL: http://floci:4566
+      AWS_DEFAULT_REGION: us-east-1
+      AWS_ACCESS_KEY_ID: test
+      AWS_SECRET_ACCESS_KEY: test
+    depends_on: [floci]
+  frontend:
+    build: ./frontend
+    read_only: true
+    tmpfs: ["/tmp:mode=1777", "/etc/nginx/conf.d:mode=1777"]
+    environment:
+      GRAPHQL_UPSTREAM_SCHEME: http
+      ALLOW_INSECURE_LOCAL_UPSTREAM: "true"
+      GRAPHQL_UPSTREAM_HOST: gateway:8000
+      GRAPHQL_UPSTREAM_PATH: /graphql
+    ports: ["8088:8080"]
+    depends_on: [gateway]
+  # Local Prefect UI for the observability flow (docker compose --profile observability up -d prefect)
+  prefect:
+    image: prefecthq/prefect:3-python3.12
+    command: ["prefect", "server", "start", "--host", "0.0.0.0"]
+    ports: ["4201:4200"]
+    profiles: ["observability"]

@@ -135,6 +135,24 @@ def test_official_hardware_fault_flag_compensates_successfully(backend, monkeypa
     monkeypatch.setenv("SIMULATE_CHARGER_HARDWARE_FAULT", "false")
 
 
+def test_enabled_fault_flag_alone_triggers_compensation(backend, monkeypatch):
+    gateway = backend["gateway"]
+    monkeypatch.setenv("SIMULATE_CHARGER_HARDWARE_FAULT", "true")
+    key = _key()
+    wallet_id = f"wallet-{key}"
+
+    with TestClient(gateway.app) as client:
+        result = _charge(client, wallet_id, key, fault=False)["data"]["reserveAndActivateCharge"]
+
+    saga = gateway.get_saga(result["sagaId"])
+    assert result["state"] == "COMPENSATED"
+    assert saga["charge_status"] == "refunded"
+    assert saga["reservation_status"] == "cancelled"
+    assert _wallet(backend, wallet_id)["balance"] == 100
+    assert _connector(backend) == "available"
+    monkeypatch.setenv("SIMULATE_CHARGER_HARDWARE_FAULT", "false")
+
+
 def test_failed_compensation_is_not_reported_success_and_can_be_retried(backend, monkeypatch):
     gateway = backend["gateway"]
     backend["behavior"]["fail_refund"] = True
@@ -265,7 +283,7 @@ def test_feature_flags_use_official_names_and_fail_on_invalid_values(backend, mo
     assert invalid.get("errors")
 
 
-def test_request_fault_injection_is_disabled_when_environment_flag_is_false(backend, monkeypatch):
+def test_request_fault_input_cannot_inject_when_environment_flag_is_false(backend, monkeypatch):
     gateway = backend["gateway"]
     monkeypatch.setenv("SIMULATE_CHARGER_HARDWARE_FAULT", "false")
     key = _key()

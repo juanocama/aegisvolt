@@ -121,10 +121,10 @@ Reservation flow:
   message when returned.
 - Disable duplicate submission while in flight. Handle transport failure
   separately from a business failure returned as a successful GraphQL result.
-- Provide an explicit, guarded demonstration control for the existing
-  `chargeFault` mutation argument only in non-production. Do not describe it as
-  a persisted environment Feature Flag; the backend currently accepts a
-  per-request boolean and does not link it to `flags`.
+- Do not offer a per-request fault control. When the environment's
+  `SIMULATE_CHARGER_HARDWARE_FAULT` flag is enabled, show a warning in the
+  charge flow that activation will fail and the SAGA will compensate; the flag
+  itself is changed by operators in the environment's DynamoDB flags table.
 - On success, refresh stations, telemetry, wallet, and SAGA history.
 
 No separate reservation-only or charge-stop operation exists in GraphQL.

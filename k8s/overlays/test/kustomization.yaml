@@ -6,9 +6,12 @@ resources:
   - ../../serviceaccounts.yaml
   - ../../gateway-deployment.yaml
   - ../../gateway-service.yaml
+  - ../../gateway-canary.yaml
   - ../../station-reservation.yaml
   - ../../billing-wallet.yaml
   - ../../energy-dispatch.yaml
+  - ../../frontend.yaml
+  - ../../gateway-ingress.yaml
 labels:
   - pairs:
       environment: test
@@ -17,6 +20,9 @@ labels:
 patches:
   - path: patches.yaml
 images:
+  - name: aegisvolt-frontend
+    newName: CHANGE_ME_ECR_ACCOUNT.dkr.ecr.CHANGE_ME_AWS_REGION.amazonaws.com/aegisvolt/test/frontend
+    newTag: CHANGE_ME_SHA
   - name: aegisvolt-gateway
     newName: CHANGE_ME_ECR_ACCOUNT.dkr.ecr.CHANGE_ME_AWS_REGION.amazonaws.com/aegisvolt/test/gateway
     newTag: CHANGE_ME_SHA

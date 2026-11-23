@@ -9,8 +9,10 @@ from pydantic import BaseModel, Field
 
 from common.dynamodb import dynamodb_client, dynamodb_resource, ensure_table
 from common.environment import environment_table_name
+from common.observability import install_request_logging
 
 app = FastAPI(title="AegisVolt Billing Wallet")
+install_request_logging(app, "billing-wallet")
 TABLE = environment_table_name("wallets")
 table = dynamodb_resource().Table(TABLE)
 dynamodb = dynamodb_client()
@@ -171,7 +173,9 @@ def refund(charge_id: str):
     refund_id = _refund_id(normalized_id)
     existing_refund = _get_item(refund_id)
     if existing_refund:
-        return charge_item
+        # Replay: re-read so a concurrent refund that committed after the
+        # first read is reported as "refunded", never as the stale "charged".
+        return _get_item(normalized_id)
     if charge_item.get("status") != "charged":
         raise HTTPException(409, "Charge is not refundable")
 
