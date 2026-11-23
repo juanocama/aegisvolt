@@ -22,6 +22,17 @@ variable "nat_gateway_per_availability_zone" {
   type = bool
 }
 
+variable "interface_endpoint_az_count" {
+  description = "Number of private subnets (AZs) that receive interface endpoint ENIs. Endpoints are billed per AZ-hour."
+  type        = number
+}
+
+variable "enable_ssm_endpoints" {
+  description = "Create ssm/ssmmessages/ec2messages endpoints for the private Session Manager access host."
+  type        = bool
+  default     = false
+}
+
 data "aws_availability_zones" "available" {
   state = "available"
 }
@@ -154,20 +165,28 @@ resource "aws_vpc_endpoint" "dynamodb" {
 locals {
   interface_endpoints = toset([
     "ec2",
+    "elasticloadbalancing", # AWS Load Balancer Controller ALB/target-group reconciliation
+    "monitoring",           # CloudWatch PutMetricData (Prefect audit, agent metrics)
     "ecr.api",
     "ecr.dkr",
     "logs",
     "sts",
+    "execute-api",
+    "eks-auth",
   ])
+  ssm_endpoints           = var.enable_ssm_endpoints ? toset(["ssm", "ssmmessages", "ec2messages"]) : toset([])
+  endpoint_az_count       = min(var.interface_endpoint_az_count, var.availability_zone_count)
+  endpoint_subnet_ids     = slice(aws_subnet.private[*].id, 0, local.endpoint_az_count)
+  all_interface_endpoints = setunion(local.interface_endpoints, local.ssm_endpoints)
 }
 
 resource "aws_vpc_endpoint" "interface" {
-  for_each            = local.interface_endpoints
+  for_each            = local.all_interface_endpoints
   vpc_id              = aws_vpc.main.id
   service_name        = "com.amazonaws.${var.region}.${each.key}"
   vpc_endpoint_type   = "Interface"
   private_dns_enabled = true
-  subnet_ids          = aws_subnet.private[*].id
+  subnet_ids          = local.endpoint_subnet_ids
   security_group_ids  = [aws_security_group.vpc_endpoints.id]
   tags                = { Name = "${var.prefix}-${replace(each.key, ".", "-")}" }
 }
@@ -186,4 +205,8 @@ output "public_subnet_ids" {
 
 output "private_subnet_ids" {
   value = aws_subnet.private[*].id
+}
+
+output "execute_api_vpc_endpoint_id" {
+  value = aws_vpc_endpoint.interface["execute-api"].id
 }

@@ -1,0 +1,95 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aegisvolt-config
+  namespace: aegisvolt
+data:
+  ENVIRONMENT: prod
+  SAGA_TABLE: aegisvolt-prod-sagas
+---
+# Retains the existing base replica count; this is not production sizing
+# approval because the repository has no production load-test evidence.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: aegisvolt
+spec:
+  replicas: 2
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: station-reservation
+  namespace: aegisvolt
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: station-reservation
+          env:
+            - name: TABLE_NAME
+              value: aegisvolt-prod-stations
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing-wallet
+  namespace: aegisvolt
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: billing-wallet
+          env:
+            - name: TABLE_NAME
+              value: aegisvolt-prod-wallets
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: energy-dispatch
+  namespace: aegisvolt
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: energy-dispatch
+          env:
+            - name: TABLE_NAME
+              value: aegisvolt-prod-dispatch
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gateway
+  namespace: aegisvolt
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::CHANGE_ME_ACCOUNT_ID:role/prod-aegisvolt-gateway-irsa
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: station-reservation
+  namespace: aegisvolt
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::CHANGE_ME_ACCOUNT_ID:role/prod-aegisvolt-station-reservation-irsa
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: billing-wallet
+  namespace: aegisvolt
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::CHANGE_ME_ACCOUNT_ID:role/prod-aegisvolt-billing-wallet-irsa
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: energy-dispatch
+  namespace: aegisvolt
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::CHANGE_ME_ACCOUNT_ID:role/prod-aegisvolt-energy-dispatch-irsa

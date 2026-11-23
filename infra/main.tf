@@ -25,6 +25,8 @@ module "network" {
   availability_zone_count           = var.availability_zone_count
   enable_nat_gateway                = var.enable_nat_gateway
   nat_gateway_per_availability_zone = var.nat_gateway_per_availability_zone
+  interface_endpoint_az_count       = var.interface_endpoint_az_count
+  enable_ssm_endpoints              = var.enable_access_host
 }
 
 module "dynamodb" {
@@ -42,8 +44,15 @@ module "observability" {
 }
 
 module "api_gateway" {
-  source = "./modules/api_gateway"
-  prefix = local.prefix
+  source                      = "./modules/api_gateway"
+  prefix                      = local.prefix
+  vpc_id                      = module.network.vpc_id
+  vpc_cidr                    = module.network.vpc_cidr
+  private_subnet_ids          = module.network.private_subnet_ids
+  execute_api_vpc_endpoint_id = module.network.execute_api_vpc_endpoint_id
+  enable_graphql_integration  = var.enable_graphql_integration
+  gateway_alb_arn             = var.gateway_alb_arn
+  gateway_alb_dns_name        = var.gateway_alb_dns_name
 }
 
 module "eks_ecr" {
@@ -60,7 +69,9 @@ module "eks_ecr" {
   max_size             = var.node_max_size
   instance_types       = var.node_instance_types
   dynamodb_table_arns  = module.dynamodb.table_arns
-  log_group_arns       = module.observability.log_group_arns
+  addon_versions       = var.eks_addon_versions
+  ecr_force_delete     = var.ecr_force_delete
+  depends_on           = [module.observability]
 }
 
 module "github_actions_ecr" {
@@ -71,4 +82,15 @@ module "github_actions_ecr" {
   environment_name  = terraform.workspace
   github_repository = var.github_repository
   region            = var.region
+}
+
+module "access_host" {
+  count  = var.enable_access_host ? 1 : 0
+  source = "./modules/access_host"
+
+  prefix                    = local.prefix
+  vpc_id                    = module.network.vpc_id
+  vpc_cidr                  = module.network.vpc_cidr
+  subnet_id                 = module.network.private_subnet_ids[0]
+  cluster_security_group_id = module.eks_ecr.cluster_security_group_id
 }

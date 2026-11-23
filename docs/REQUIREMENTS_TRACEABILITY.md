@@ -1,7 +1,7 @@
 # Requirements Traceability
 
 **Authority:** `Proyecto Final - Patrones Arquitectónicos Avanzados (AegisVolt).docx`.
-Status reflects repository inspection on 2026-11-20. `Partial` means code exists
+Status reflects repository inspection on 2026-11-23. `Partial` means code exists
 but does not demonstrate the complete requirement; `Missing` means not found;
 `Unverified` means a declaration exists but execution has not been demonstrated.
 
@@ -13,7 +13,7 @@ but does not demonstrate the complete requirement; `Missing` means not found;
 | REQ-UI-03 | Show feature flags for selected environment | Read-only official flags are displayed from the GraphQL gateway | Partial | Only local `dev` is provisioned; no test/prod endpoints or flag mutation; pricing/boost flags do not yet change behavior |
 | REQ-UI-04 | Show transaction history and compensations | SAGA summary table and guarded `COMPENSATION_FAILED` retry are integrated | Partial | No event timeline, compensation attempt counts, filtering, sorting, pagination, or timestamps |
 | REQ-BE-01 | Unified GraphQL API: station/telemetry queries and reservation/payment/session mutations | Strawberry gateway has station, telemetry, wallet, flags, SAGA queries, charge activation/retry, and dev stop/release mutations | Partial | No flag mutation or production session stop/compensation contract; query fields lack paging/detail |
-| REQ-BE-02 | At least three independent Dockerized services deployed on Kubernetes | Three service Dockerfiles; EKS and gateway K8s manifests | Partial | Only gateway is represented in checked-in K8s workload; no complete app deployment verified |
+| REQ-BE-02 | At least three independent Dockerized services deployed on Kubernetes | Three service Dockerfiles; root Kustomize includes gateway and all three backend Deployments and Services; dev/test/prod overlays render the four workloads | Partial | No EKS deployment or runtime behavior is verified; API/private network integration and configured cluster access remain blockers |
 | REQ-FLAG-01 | Independent environment feature flags for surge, fast-charge boost, simulated hardware fault | Exact official names are read-only process values; hardware-fault request injection is gated by the corresponding flag | Partial | Local Compose is dev only; no persisted flag control plane; surge/boost behavior needs approved rules |
 | REQ-SAGA-01 | Reserve -> debit -> activate across three services | Gateway orchestrates all three; step state is persisted; service operations are idempotent | Partial | Moto/in-process integration passes, but Docker/Floci/AWS end-to-end behavior remains unverified |
 | REQ-SAGA-02 | On activation failure refund then release connector | Refund is confirmed before release; failure and pending compensation are persisted; retry is state-guarded | Partial | Event log is stored on the SAGA item but not exposed through GraphQL; no background recovery worker |
@@ -21,10 +21,10 @@ but does not demonstrate the complete requirement; `Missing` means not found;
 | REQ-IAC-01 | Terraform modules for cloud infrastructure | Root modules and bootstrap exist | Partial | Modules are minimal; Terraform executable unavailable during prior verification; validate and plan before claim |
 | REQ-IAC-02 | S3 remote state with versioning/backups | Bootstrap defines versioning; root has S3 backend block | Partial/unverified | Backend HCL uses three `CHANGE_ME` buckets while bootstrap creates one supplied bucket; reconcile names, locking, workspace key, and bootstrap/apply sequence |
 | REQ-IAC-03 | Separate Terraform workspaces `dev/test/prod`, names include workspace | `local.prefix` uses `terraform.workspace`; backend/env files exist | Partial | No workspace guard/validation; identical tfvars; workflow path mismatch and no plan gate by PR target |
-| REQ-IAC-04 | VPC with public/private subnets and private endpoints to API Gateway, cluster, S3, DynamoDB, CloudWatch | Network module creates VPC and two public subnets | Missing | Add private subnets/routing, endpoint resources/security policies, private API service path |
+| REQ-IAC-04 | VPC with public/private subnets and private endpoints to API Gateway, cluster, S3, DynamoDB, CloudWatch | VPC has public/private subnets, S3/DynamoDB gateway endpoints, interface endpoints including `execute-api` and `eks-auth`; private REST API is restricted by `aws:SourceVpce` | Partial | Private API Gateway and ALB integration are declared; actual ALB values, LBC installation, route reachability and AWS plan remain unverified |
 | REQ-DATA-01 | DynamoDB only, database per service, isolated per environment | Services use separate tables; default names derive from `ENVIRONMENT`, and explicit names must include the active environment token | Partial | Only dev Compose tables are configured; test/prod deployments and Terraform-to-service naming are not verified |
-| REQ-OBS-01 | Structured CloudWatch logs per environment/service with SAGA correlation id | Terraform one log group; app logs not structured | Missing/partial | Add JSON correlation/environment/service logs and groups/retention per environment |
-| REQ-OBS-02 | Prefect health of three environments, audit orphan/inconsistent/compensated SAGA, dashboard metrics | One Prefect flow checks one gateway and counts states/publishes metrics | Partial | No three-env matrix, service checks, orphan/cross-table consistency audit, or report artifacts |
+| REQ-OBS-01 | Structured CloudWatch logs per environment/service with SAGA correlation id | FastAPI request middleware writes JSON metadata with environment/service/correlation ID; CloudWatch Observability add-on and retained Container Insights log groups are declared | Partial | EKS add-on has not been installed/validated; shared application log group uses Kubernetes metadata/stream names to distinguish workloads; verify field parsing and cost in AWS |
+| REQ-OBS-02 | Prefect health of three environments, audit orphan/inconsistent/compensated SAGA, dashboard metrics | Prefect requires explicit private dev/test/prod endpoints and table names, checks gateway/services, paginates the SAGA scan, batch-reads referenced service records, uses a configurable stale threshold, and marks full orphan detection explicitly incomplete unless enabled | Partial | Key-only DynamoDB schema still requires full SAGA scans; orphan sweeps are opt-in pending an incremental index/cursor design; Prefect network/IAM, live execution, CloudWatch metrics/dashboard remain unverified |
 | REQ-CI-01 | Protected dev/test/prod branches; no direct/force push | `scripts/set_branch_protection.ps1` prints a suggested command | Missing/unverified | Script does not configure protection; apply and verify host rules for all three required branches |
 | REQ-CI-02 | feature -> dev -> test -> prod linear PR promotion | Deploy workflow triggers on environment branch pushes | Missing | Rework gating to promotion-only; current conditions can skip dependencies or bypass intended ordering |
 | REQ-CI-03 | PR checks: lint/build, unit/integration/E2E, Terraform plan | PR workflow does pytest, frontend build, Terraform fmt/init/validate, Compose config | Partial | No separate integration/E2E suites or Terraform plan; npm lint omitted |
@@ -74,9 +74,26 @@ SAGA summary history, and read-only flags. Interactive flag management,
 accurate per-environment isolation, true live subscriptions, and detailed
 compensation timeline are blocked by missing backend contracts.
 
-## Official evaluation weights
+## Evaluation weights supplied in Phase 4 request (official DOCX unverified)
 
-The official document weights the defense by architectural layer:
+The Phase 4 request supplied the following approximate distribution. The
+official course DOCX was not present in the repository or persisted reference
+files during prior audits. The earlier table below records different weights
+(including 20% for observability); keep this discrepancy explicit until the
+course rubric is checked.
+
+| Layer | Supplied weight |
+|---|---:|
+| Infrastructure as Code | 30% |
+| CI/CD, Git, and Canary | 25% |
+| Backend, microservices, Kubernetes, GraphQL, SAGA, and feature flags | 25% |
+| Observability | 12% |
+| Frontend | 8% |
+
+## Prior traceability snapshot (not confirmed against official DOCX)
+
+Earlier traceability notes recorded this distribution but did not preserve a
+locally verifiable rubric excerpt:
 
 | Layer | Weight | Current evidence/gap |
 |---|---:|---|

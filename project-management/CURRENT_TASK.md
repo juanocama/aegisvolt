@@ -1,10 +1,11 @@
 # Current Task
 
-**Status:** Phase 1 backend correctness and the integrated frontend implementation
-are complete within the available local verification boundary. AWS/deployment
-work remains outside scope pending approval. Phase 2 Terraform consistency
-work has completed local validation; live state, planning, and deployment remain blocked.
-**Last updated:** 2026-11-22.
+**Status:** Phase 1 backend correctness, frontend implementation, and Phase 2
+Terraform consistency work have completed their recorded local verification.
+Phase 3 Kubernetes base/overlays now render locally, but the full backend suite
+remains blocked by the Windows TestClient socket startup hang. AWS/EKS
+deployment remains outside scope pending approval.
+**Last updated:** 2026-11-23.
 
 ## Phase 1 implementation
 
@@ -52,7 +53,10 @@ work has completed local validation; live state, planning, and deployment remain
   `//./pipe/dockerDesktopLinuxEngine`.
 - No Terraform command/apply, AWS operation, Kubernetes deployment, or
   frontend build was run.
-- No `.git` metadata exists, so Git cannot establish clean/dirty status.
+- Git metadata was available for the Phase 3 task. The checkout was on
+  `feature/phase-3-kubernetes` at `e1cf059`; `.git` write access was denied, so
+  remote refs could not be refreshed. See the Phase 3 report for this
+  verification boundary.
 
 ## Phase 2 Terraform verification
 
@@ -115,3 +119,74 @@ metrics are configured. The `canary-readiness.yml` workflow is a non-deploying
 fail-closed gate. No AWS/GitHub live inspection or infrastructure mutation was
 performed. Repository-side Phase 4 code does not authorize live AWS/Kubernetes
 deployment; those operations still require separate approval.
+
+## Phase 3 Kubernetes implementation status
+
+- The root base remains directly under `k8s/`; its Kustomize entry point and
+  root YAML discovery behavior are unchanged.
+- `k8s/overlays/{dev,test,prod}` reference the eight root base YAML files
+  directly. Overlay rendering requires
+  `kubectl kustomize --load-restrictor LoadRestrictionsNone ...` because the
+  shared files are outside each overlay directory. This option is scoped to
+  the checked-in repository overlays; the root render keeps the default
+  restriction. Each overlay adds an `environment` label to resource metadata
+  and pod templates.
+- Root render, all three overlay renders, local environment/table/image/
+  replica/probe/resource/service assertions, the embedded CI root manifest
+  validator, workflow YAML parsing, and `git diff --check` passed locally.
+- `python -m pytest -q tests/test_services.py`: 5 passed. Full pytest was
+  attempted with faulthandler and reproduced a Windows Proactor socket-pair
+  hang in `tests/test_compensation.py::test_retry_compensation_rejects_non_failed_saga`;
+  the run was interrupted without changing application code or tests.
+- Current local HEAD is `58353ff`, the same as locally recorded `origin/dev`,
+  and includes CI repair commit `9509b3a`. The feature branch is reported six
+  commits ahead of its local `origin/feature/phase-3-kubernetes` tracking ref.
+  No fetch was done; GitHub CLI is unavailable, so live PR/check/review state
+  and fresh remote ancestry remain unverified.
+- ECR account/region/SHA and IRSA account identifiers remain placeholders;
+  no EKS admin principal is configured; production sizing, private API Gateway
+  integration, pod log collection, AWS/EKS provisioning, and deployment are
+  not complete.
+- GitHub Actions itself was not run; the workflow overlay shell step could not
+  execute locally because Windows denied `bash.exe` access. Details and exact
+  commands are in `docs/PHASE_3_KUBERNETES_REPORT.md`.
+- Kubernetes manifests parsed and rendered, but API-server schema validation
+  was not available locally; no invalid fields were found in the static audit.
+
+## Phase 4 infrastructure and observability status
+
+- Work is in `feature/phase-4-infrastructure-observability`, branched from the refreshed `origin/dev`; changes are local and have not been committed or pushed.
+- Audit, architecture decisions, prioritized gap matrix, required values, and implementation boundaries are recorded in `docs/PHASE_4_INFRASTRUCTURE_OBSERVABILITY_REPORT.md`.
+- The HTTP API shell was replaced by private REST API Gateway, execute-api VPC endpoint/policy, and an optional GraphQL VPC Link integration. The integration is disabled until the internal AWS LBC ALB ARN and DNS name exist.
+- EKS now declares Kubernetes 1.37 and `API_AND_CONFIG_MAP`; at least one validated real admin ARN is required before provisioning. Service IRSA policies are reduced to the DynamoDB calls each service actually makes.
+- CloudWatch Observability and Pod Identity add-ons and retained log groups are declared. FastAPI writes JSON request metadata with a propagated correlation ID; Prefect audits require explicit private config for all three environments and report SAGA event/consistency summaries.
+- CI now includes strict kubeconform schema validation pinned by image digest for root and all three overlays. Gateway Ingress is internal and serves `/graphql`; `/health` is used for ALB health checks.
+- `terraform fmt -check -recursive`, `terraform init -backend=false -input=false -reconfigure` (AWS provider 6.73.0), `terraform validate -no-color`, and `python -m compileall -q common gateway services tests observability/prefect` passed. `tests/test_services.py` plus `tests/test_phase4_observability.py`: 9 passed, 68 warnings.
+- Full `python -m pytest -q -o faulthandler_timeout=10` did not finish; it reproduced the Windows Proactor socket-pair hang at `tests/test_compensation.py::test_retry_compensation_rejects_non_failed_saga` and was interrupted. No tests were weakened or removed.
+- Root and all overlays rendered and parsed: 15 root resources and 14 per overlay. CI workflow YAML parsed. Kubeconform itself could not run locally because it is not installed and Docker Desktop denied access to its engine pipe.
+- No AWS API, S3 backend, plan/apply, Kubernetes deployment, or runtime CloudWatch validation was performed.
+- Remaining integration requirements: install/configure AWS Load Balancer Controller with its upstream IAM policy through a private cluster-connected runner, deploy with immutable ECR image SHAs, then set the ALB inputs and enable the API integration. Provide region/account/state bucket and real EKS admin principal. Prefect needs private URLs and a read-only DynamoDB/CloudWatch role.
+- Official course DOCX is unavailable in the inspected files. Phase 4 rubric percentages differ from the older traceability snapshot; the discrepancy is documented, not resolved.
+
+## Phase 4 targeted remediation update
+
+- `common/observability.py` validates/normalizes correlation IDs and logs route templates instead of dynamic URL paths; malformed or missing IDs receive a generated UUID. Added focused privacy/propagation tests.
+- Prefect now distinguishes fresh active SAGA states from stale nonterminal states using `updated_at`, the existing lease, and configurable `SAGA_STALE_AFTER_SECONDS` (default 300). Compensation attempts/retries use the actual `compensation` and `compensation_retry` events.
+- Routine audit scans the paginated SAGA table and BatchGets only downstream records referenced by SAGA items. Exhaustive orphan detection is explicitly optional with `SAGA_FULL_ORPHAN_SCAN_ENABLED=true`; disabled results say the audit is incomplete, not zero. Existing key-only DynamoDB model still prevents efficient incremental SAGA/orphan discovery; see `docs/PHASE_4_REMEDIATION_READINESS.md` for the required index/cursor design and cost limits.
+- CI pins the Kubeconform schema source to Kubernetes 1.37.0 strict schema ref; image digest, strict mode and root/dev/test/prod validation are retained.
+- `compileall` passed; seven synchronous focused tests passed. Async middleware tests and full suite remain blocked locally by Windows Proactor socket-pair loop startup; WSL access is denied. No AWS calls or resource changes were performed.
+- Readiness plan records endpoint/NAT matrix, exact LBC v3.6.3 upstream IAM policy source and Pod Identity install sequence, EKS role ARN inference/mismatch, add-on version lookup steps, and private frontend/CORS decisions. AWS configuration remains unmodified.
+
+## Phase 4 execution update (2026-11-23)
+
+- Fixed Prefect BatchGet serialization bug (crashed against real DynamoDB) and missing `ACTIVATION_UNCERTAIN` active state; added Moto-backed tests. Updated stale gateway `/health` assertion. Full suite: 36 passed on Windows.
+- Verified AWS identity and real EKS admin role ARN; account has no AegisVolt resources yet. Pinned EKS 1.37 add-on versions, added ELB/Monitoring endpoints, configured dev tfvars and backends (`aegisvolt-tfstate-065656773005-us-east-1`).
+- Read-only dev plan: create-only, no NAT. **Blocked on owner approval:** state bucket creation and dev apply (~USD 235/month estimate). Details in `docs/PHASE_4_REMEDIATION_READINESS.md`.
+
+## Phase 4 temporary AWS dev deployment (2026-11-23)
+
+- User-authorized same-day `dev` deployment (USD 4 ceiling, no credits) was applied, tested end-to-end and destroyed. Evidence: `docs/PHASE_4_DEV_DEPLOYMENT_EVIDENCE.md`.
+- Added: frontend container/manifests with dedicated internal ALB, LBC Pod Identity role + ECR mirror, Session Manager access host, single-AZ endpoint option, dev cost settings.
+- Live run found and fixed: billing IAM `UpdateItem`, CloudWatch agent crash-loop, REST API policy drift, nginx TLS verify depth, dev overlay region/ingress gaps.
+- Teardown independently verified; only the Terraform state bucket remains. No commit/push performed.
+- Remaining: Client VPN not implemented (SSM port forwarding documented as substitute); full local pytest still blocked by Windows hang.

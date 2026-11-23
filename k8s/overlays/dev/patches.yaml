@@ -1,0 +1,102 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: aegisvolt-config
+  namespace: aegisvolt
+data:
+  ENVIRONMENT: dev
+  SAGA_TABLE: aegisvolt-dev-sagas
+  AWS_DEFAULT_REGION: us-east-1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: aegisvolt
+spec:
+  replicas: 1
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: station-reservation
+  namespace: aegisvolt
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: station-reservation
+          env:
+            - name: TABLE_NAME
+              value: aegisvolt-dev-stations
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: billing-wallet
+  namespace: aegisvolt
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: billing-wallet
+          env:
+            - name: TABLE_NAME
+              value: aegisvolt-dev-wallets
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: energy-dispatch
+  namespace: aegisvolt
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: energy-dispatch
+          env:
+            - name: TABLE_NAME
+              value: aegisvolt-dev-dispatch
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: gateway
+  namespace: aegisvolt
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::CHANGE_ME_ACCOUNT_ID:role/dev-aegisvolt-gateway-irsa
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: station-reservation
+  namespace: aegisvolt
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::CHANGE_ME_ACCOUNT_ID:role/dev-aegisvolt-station-reservation-irsa
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: billing-wallet
+  namespace: aegisvolt
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::CHANGE_ME_ACCOUNT_ID:role/dev-aegisvolt-billing-wallet-irsa
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: energy-dispatch
+  namespace: aegisvolt
+  annotations:
+    eks.amazonaws.com/role-arn: arn:aws:iam::CHANGE_ME_ACCOUNT_ID:role/dev-aegisvolt-energy-dispatch-irsa
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+  namespace: aegisvolt
+data:
+  GRAPHQL_UPSTREAM_PATH: /dev/graphql
