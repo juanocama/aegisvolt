@@ -99,6 +99,7 @@ jobs:
           python -m pytest -q
           tests/test_feature_flags.py tests/test_canary_gate.py
           tests/test_phase4_observability.py tests/test_phase4_canary_readiness.py
+          tests/test_prefect_audit_rules.py
 
   integration-tests:
     name: integration-tests

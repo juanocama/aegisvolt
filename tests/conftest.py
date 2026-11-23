@@ -118,8 +118,22 @@ class InProcessServiceTransport(httpx.AsyncBaseTransport):
         return response
 
 
+def _reset_tables():
+    """Each test starts from empty tables so results never depend on test order
+    (the Moto backend is shared by the whole session)."""
+    import boto3
+
+    dynamodb = boto3.resource("dynamodb", region_name="us-east-1")
+    for name in ("aegisvolt-dev-stations", "aegisvolt-dev-wallets", "aegisvolt-dev-dispatch", "aegisvolt-dev-sagas"):
+        table = dynamodb.Table(name)
+        with table.batch_writer() as batch:
+            for item in table.scan(ProjectionExpression="id").get("Items", []):
+                batch.delete_item(Key={"id": item["id"]})
+
+
 @pytest.fixture
 def backend(monkeypatch):
+    _reset_tables()
     from gateway import app as gateway
 
     apps = {
