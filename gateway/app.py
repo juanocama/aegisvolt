@@ -635,8 +635,12 @@ class Mutation:
         idempotency_key: str,
         charge_fault: bool = False,
     ) -> ChargeResult:
+        # Spec 2.3: while SIMULATE_CHARGER_HARDWARE_FAULT is enabled for this
+        # environment, physical activation (step 3) fails and the SAGA
+        # compensates automatically. `charge_fault` is kept only for schema
+        # compatibility and cannot inject a fault on its own.
         flags = load_feature_flags()
-        effective_fault = charge_fault and flags["SIMULATE_CHARGER_HARDWARE_FAULT"]
+        effective_fault = flags["SIMULATE_CHARGER_HARDWARE_FAULT"]
         saga = await execute_saga(
             wallet_id,
             station_id,

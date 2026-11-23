@@ -6,6 +6,7 @@ resources:
   - ../../serviceaccounts.yaml
   - ../../gateway-deployment.yaml
   - ../../gateway-service.yaml
+  - ../../gateway-canary.yaml
   - ../../station-reservation.yaml
   - ../../billing-wallet.yaml
   - ../../energy-dispatch.yaml

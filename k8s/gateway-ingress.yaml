@@ -10,6 +10,11 @@ metadata:
     alb.ingress.kubernetes.io/healthcheck-path: /health
     alb.ingress.kubernetes.io/inbound-cidrs: 10.0.0.0/16
     alb.ingress.kubernetes.io/load-balancer-name: aegisvolt-graphql
+    # Weighted forward used by scripts/canary_deploy.py (stable/canary %).
+    alb.ingress.kubernetes.io/actions.graphql-weighted: >-
+      {"type":"forward","forwardConfig":{"targetGroups":[
+      {"serviceName":"gateway","servicePort":"80","weight":100},
+      {"serviceName":"gateway-canary","servicePort":"80","weight":0}]}}
     alb.ingress.kubernetes.io/healthcheck-protocol: HTTP
 spec:
   ingressClassName: alb
@@ -20,6 +25,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: gateway
+                name: graphql-weighted
                 port:
-                  number: 80
+                  name: use-annotation

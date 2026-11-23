@@ -136,8 +136,14 @@ async def test_valid_correlation_id_propagates_and_dynamic_path_is_not_logged(mo
     assert log_record["correlation_id"] == valid_id
     assert log_record["path"] == "/items/{item_id}"
     assert "private-resource-id" not in logged[0]
-    for secret in ("query-secret", "auth-secret", "business-secret", "99"):
+    for secret in ("query-secret", "auth-secret", "business-secret"):
         assert secret not in logged[0]
+    # The request body (amount 99) must not be logged. Compare fields, not raw
+    # text: the timestamp/duration digits can legitimately contain "99".
+    assert set(log_record) == {
+        "timestamp", "environment", "service", "correlation_id", "method", "path", "status_code", "duration_ms",
+    }
+    assert 99 not in log_record.values() and "99" not in log_record.values()
 
 
 def test_audit_distinguishes_active_stale_terminal_and_failed_sagas():

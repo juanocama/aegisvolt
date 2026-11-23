@@ -1,0 +1,226 @@
+name: Deploy (post-merge)
+
+# Spec 3.3 post-merge: the branch that received the merge (dev, test or prod)
+# selects the Terraform workspace and only that environment is changed. The
+# Kubernetes rollout of the GraphQL gateway is a canary (20% via weighted ALB
+# target groups) promoted only when CloudWatch error metrics stay clean.
+#
+# Required GitHub configuration (see docs/CICD_PIPELINE.md):
+#   Environments dev/test/prod (deployment branch = same name) with variable
+#     AWS_DEPLOY_ROLE_ARN = terraform output github_deploy_role_arn
+#   Repository variable AWS_REGION
+
+on:
+  push:
+    branches: [dev, test, prod]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-${{ github.ref_name }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy-${{ github.ref_name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    environment:
+      name: ${{ github.ref_name }}
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      TARGET_ENVIRONMENT: ${{ github.ref_name }}
+      AWS_REGION: ${{ vars.AWS_REGION }}
+      IMAGE_TAG: ${{ github.sha }}
+      LBC_VERSION: v3.6.3
+      LBC_CHART_VERSION: 3.6.3
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Detect target environment from the merged branch
+        shell: bash
+        env:
+          ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+        run: |
+          set -euo pipefail
+          [[ "$TARGET_ENVIRONMENT" =~ ^(dev|test|prod)$ ]] || { echo "Not an environment branch: $TARGET_ENVIRONMENT" >&2; exit 1; }
+          [[ "$ROLE_ARN" == arn:aws:iam::*:role/* ]] || { echo "Environment variable AWS_DEPLOY_ROLE_ARN is not configured for $TARGET_ENVIRONMENT." >&2; exit 1; }
+          [[ -n "$AWS_REGION" ]] || { echo "Repository variable AWS_REGION is not configured." >&2; exit 1; }
+          echo "Deploying workspace $TARGET_ENVIRONMENT at $IMAGE_TAG"
+
+      - uses: aws-actions/configure-aws-credentials@7474bc4690e29a8392af63c5b98e7449536d5c3a # v4.3.1
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+          role-duration-seconds: 3600
+
+      - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
+        with:
+          terraform_version: "1.10.5"
+          terraform_wrapper: false
+
+      - name: terraform apply (workspace = merged branch)
+        working-directory: infra
+        run: |
+          set -euo pipefail
+          terraform init -input=false -backend-config="backend/${TARGET_ENVIRONMENT}.hcl"
+          terraform workspace select "${TARGET_ENVIRONMENT}"
+          terraform apply -input=false -auto-approve -var-file="envs/${TARGET_ENVIRONMENT}.tfvars"
+          terraform output -json > "$RUNNER_TEMP/tf.json"
+
+      - name: Read infrastructure outputs
+        id: tf
+        shell: bash
+        run: |
+          set -euo pipefail
+          out() { python3 -c "import json,sys;print(json.load(open('$RUNNER_TEMP/tf.json'))[sys.argv[1]]['value'] or '')" "$1"; }
+          ACCOUNT=$(aws sts get-caller-identity --query Account --output text)
+          {
+            echo "account=$ACCOUNT"
+            echo "cluster=$(out eks_cluster_name)"
+            echo "endpoint=$(out eks_cluster_endpoint)"
+            echo "vpc=$(out vpc_id)"
+            echo "api_id=$(out graphql_api_id)"
+            echo "host=$(out access_host_instance_id)"
+            echo "registry=$ACCOUNT.dkr.ecr.$AWS_REGION.amazonaws.com"
+          } >> "$GITHUB_OUTPUT"
+          [[ -n "$(out access_host_instance_id)" ]] || { echo "enable_access_host must be true: the EKS API is private." >&2; exit 1; }
+
+      - name: Build and push images (immutable SHA tags)
+        shell: bash
+        env:
+          REGISTRY: ${{ steps.tf.outputs.registry }}
+        run: |
+          set -euo pipefail
+          aws ecr get-login-password | docker login -u AWS --password-stdin "$REGISTRY"
+          build() { docker build -f "$2" -t "$REGISTRY/aegisvolt/$TARGET_ENVIRONMENT/$1:$IMAGE_TAG" "$3"; docker push "$REGISTRY/aegisvolt/$TARGET_ENVIRONMENT/$1:$IMAGE_TAG"; }
+          exists() { aws ecr describe-images --repository-name "aegisvolt/$TARGET_ENVIRONMENT/$1" --image-ids imageTag="$IMAGE_TAG" >/dev/null 2>&1; }
+          for svc in gateway station-reservation billing-wallet energy-dispatch; do
+            file=services/$svc/Dockerfile; [[ $svc == gateway ]] && file=gateway/Dockerfile
+            exists "$svc" || build "$svc" "$file" .
+          done
+          exists frontend || build frontend frontend/Dockerfile frontend
+          mirror="$REGISTRY/aegisvolt/$TARGET_ENVIRONMENT/mirror/aws-load-balancer-controller:$LBC_VERSION"
+          if ! aws ecr describe-images --repository-name "aegisvolt/$TARGET_ENVIRONMENT/mirror/aws-load-balancer-controller" --image-ids imageTag="$LBC_VERSION" >/dev/null 2>&1; then
+            docker pull "public.ecr.aws/eks/aws-load-balancer-controller:$LBC_VERSION"
+            docker tag "public.ecr.aws/eks/aws-load-balancer-controller:$LBC_VERSION" "$mirror"
+            docker push "$mirror"
+          fi
+
+      - name: Open private tunnel to the EKS API (Session Manager)
+        shell: bash
+        env:
+          HOST: ${{ steps.tf.outputs.host }}
+          ENDPOINT: ${{ steps.tf.outputs.endpoint }}
+          CLUSTER: ${{ steps.tf.outputs.cluster }}
+        run: |
+          set -euo pipefail
+          curl -fsSLo "$RUNNER_TEMP/ssm.deb" https://s3.amazonaws.com/session-manager-downloads/plugin/latest/ubuntu_64bit/session-manager-plugin.deb
+          sudo dpkg -i "$RUNNER_TEMP/ssm.deb"
+          EKS_HOST=${ENDPOINT#https://}
+          nohup aws ssm start-session --target "$HOST" --document-name AWS-StartPortForwardingSessionToRemoteHost \
+            --parameters "{\"host\":[\"$EKS_HOST\"],\"portNumber\":[\"443\"],\"localPortNumber\":[\"8443\"]}" > "$RUNNER_TEMP/eks-tunnel.log" 2>&1 &
+          aws eks update-kubeconfig --name "$CLUSTER" --alias "$TARGET_ENVIRONMENT"
+          kubectl config set-cluster "$(kubectl config view -o jsonpath='{.contexts[0].context.cluster}')" \
+            --server=https://127.0.0.1:8443 --tls-server-name="$EKS_HOST"
+          for i in $(seq 1 30); do kubectl get nodes && exit 0; sleep 5; done
+          cat "$RUNNER_TEMP/eks-tunnel.log"; exit 1
+
+      - name: Install AWS Load Balancer Controller (Pod Identity, mirrored image)
+        shell: bash
+        env:
+          CLUSTER: ${{ steps.tf.outputs.cluster }}
+          VPC: ${{ steps.tf.outputs.vpc }}
+          REGISTRY: ${{ steps.tf.outputs.registry }}
+        run: |
+          set -euo pipefail
+          helm repo add eks https://aws.github.io/eks-charts && helm repo update
+          helm upgrade --install aws-load-balancer-controller eks/aws-load-balancer-controller \
+            --version "$LBC_CHART_VERSION" -n kube-system --wait --timeout 5m \
+            --set clusterName="$CLUSTER" --set region="$AWS_REGION" --set vpcId="$VPC" \
+            --set image.repository="$REGISTRY/aegisvolt/$TARGET_ENVIRONMENT/mirror/aws-load-balancer-controller" \
+            --set image.tag="$LBC_VERSION" --set serviceAccount.name=aws-load-balancer-controller \
+            --set enableShield=false --set enableWaf=false --set enableWafv2=false
+
+      - name: Apply manifests (stable gateway kept on its current image)
+        id: apply
+        shell: bash
+        env:
+          ACCOUNT: ${{ steps.tf.outputs.account }}
+          API_ID: ${{ steps.tf.outputs.api_id }}
+        run: |
+          set -euo pipefail
+          current=$(kubectl -n aegisvolt get deploy gateway -o jsonpath='{.spec.template.spec.containers[0].image}' 2>/dev/null || true)
+          stable_tag=${current##*:}
+          if [[ -z "$current" || "$stable_tag" == CHANGE_ME* ]]; then stable_tag=$IMAGE_TAG; fi
+          echo "stable_tag=$stable_tag" >> "$GITHUB_OUTPUT"
+          python3 scripts/render_deploy_overlay.py --env "$TARGET_ENVIRONMENT" --account "$ACCOUNT" \
+            --region "$AWS_REGION" --tag "$IMAGE_TAG" --api-id "$API_ID" \
+            --stable-gateway-tag "$stable_tag" --out "$RUNNER_TEMP/overlay"
+          kubectl kustomize --load-restrictor LoadRestrictionsNone "$RUNNER_TEMP/overlay" > "$RUNNER_TEMP/rendered.yaml"
+          if grep -q CHANGE_ME "$RUNNER_TEMP/rendered.yaml"; then echo "unresolved CHANGE_ME in manifests" >&2; exit 1; fi
+          kubectl apply -f "$RUNNER_TEMP/rendered.yaml"
+          for d in station-reservation billing-wallet energy-dispatch frontend gateway; do
+            kubectl -n aegisvolt rollout status "deployment/$d" --timeout=300s
+          done
+
+      - name: Wire private API Gateway -> VPC Link -> internal GraphQL ALB
+        working-directory: infra
+        shell: bash
+        run: |
+          set -euo pipefail
+          name="${TARGET_ENVIRONMENT}-aegisvolt-graphql"
+          for i in $(seq 1 40); do
+            state=$(aws elbv2 describe-load-balancers --names "$name" --query 'LoadBalancers[0].State.Code' --output text 2>/dev/null || true)
+            [[ "$state" == active ]] && break; sleep 15
+          done
+          [[ "$state" == active ]] || { echo "ALB $name is not active" >&2; exit 1; }
+          read -r arn dns < <(aws elbv2 describe-load-balancers --names "$name" --query 'LoadBalancers[0].[LoadBalancerArn,DNSName]' --output text)
+          terraform apply -input=false -auto-approve -var-file="envs/${TARGET_ENVIRONMENT}.tfvars" \
+            -var enable_graphql_integration=true -var "gateway_alb_arn=$arn" -var "gateway_alb_dns_name=$dns"
+
+      - name: Open tunnel to the internal frontend ALB
+        shell: bash
+        env:
+          HOST: ${{ steps.tf.outputs.host }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 40); do
+            dns=$(aws elbv2 describe-load-balancers --names "${TARGET_ENVIRONMENT}-aegisvolt-frontend" --query 'LoadBalancers[?State.Code==`active`].DNSName' --output text 2>/dev/null || true)
+            [[ -n "$dns" && "$dns" != None ]] && break; sleep 15
+          done
+          nohup aws ssm start-session --target "$HOST" --document-name AWS-StartPortForwardingSessionToRemoteHost \
+            --parameters "{\"host\":[\"$dns\"],\"portNumber\":[\"80\"],\"localPortNumber\":[\"18080\"]}" > "$RUNNER_TEMP/fe-tunnel.log" 2>&1 &
+          for i in $(seq 1 30); do curl -fsS http://127.0.0.1:18080/healthz && exit 0; sleep 5; done
+          cat "$RUNNER_TEMP/fe-tunnel.log"; exit 1
+
+      - name: Canary rollout of the gateway (20%, CloudWatch gate, auto rollback)
+        if: steps.apply.outputs.stable_tag != env.IMAGE_TAG
+        shell: bash
+        env:
+          REGISTRY: ${{ steps.tf.outputs.registry }}
+        run: |
+          set -euo pipefail
+          python3 -m pip install --quiet boto3
+          # Synthetic read traffic through frontend ALB -> private API -> weighted GraphQL ALB.
+          ( end=$((SECONDS+420)); while (( SECONDS < end )); do
+              curl -s -o /dev/null -X POST -H 'Content-Type: application/json' \
+                -d '{"query":"{ dashboard { environment servicesOk } stations { id } }"}' http://127.0.0.1:18080/graphql
+              sleep 1
+            done ) &
+          python3 scripts/canary_deploy.py --environment "$TARGET_ENVIRONMENT" --region "$AWS_REGION" \
+            --image "$REGISTRY/aegisvolt/$TARGET_ENVIRONMENT/gateway:$IMAGE_TAG" \
+            --weight 20 --window 300 --min-requests 20 --max-error-rate 0.01
+
+      - name: Post-deploy end-to-end (frontend -> private API Gateway -> EKS)
+        env:
+          E2E_GRAPHQL_URL: http://127.0.0.1:18080/graphql
+          E2E_FRONTEND_URL: http://127.0.0.1:18080
+          E2E_ENVIRONMENT: ${{ github.ref_name }}
+          AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
+        run: |
+          python3 -m pip install --quiet -r requirements.txt
+          python3 -m pytest -q e2e

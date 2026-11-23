@@ -193,3 +193,33 @@ variable "ecr_force_delete" {
   type        = bool
   default     = false
 }
+
+variable "initial_feature_flags" {
+  description = "Initial flag values per workspace (spec 2.2 example: surge pricing on in dev/test, off in prod). Runtime changes live in each environment's DynamoDB flags table."
+  type        = map(map(bool))
+  default = {
+    dev  = { ENABLE_DYNAMIC_SURGE_PRICING = true, ENABLE_FAST_CHARGE_BOOST = false, SIMULATE_CHARGER_HARDWARE_FAULT = false }
+    test = { ENABLE_DYNAMIC_SURGE_PRICING = true, ENABLE_FAST_CHARGE_BOOST = false, SIMULATE_CHARGER_HARDWARE_FAULT = false }
+    prod = { ENABLE_DYNAMIC_SURGE_PRICING = false, ENABLE_FAST_CHARGE_BOOST = false, SIMULATE_CHARGER_HARDWARE_FAULT = false }
+  }
+  validation {
+    condition = alltrue([
+      for env in ["dev", "test", "prod"] :
+      contains(keys(var.initial_feature_flags), env) &&
+      toset(keys(var.initial_feature_flags[env])) == toset(["ENABLE_DYNAMIC_SURGE_PRICING", "ENABLE_FAST_CHARGE_BOOST", "SIMULATE_CHARGER_HARDWARE_FAULT"])
+    ])
+    error_message = "Each of dev/test/prod must define exactly the three official flags."
+  }
+}
+
+variable "state_bucket" {
+  description = "Terraform state bucket name (documented for the CI roles)."
+  type        = string
+  default     = ""
+}
+
+variable "github_oidc_subject_repository" {
+  description = "Repository part of GitHub's OIDC sub claim (immutable format owner@ownerId/repo@repoId, as observed in CloudTrail). Empty uses github_repository."
+  type        = string
+  default     = ""
+}

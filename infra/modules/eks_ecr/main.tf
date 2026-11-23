@@ -213,7 +213,16 @@ resource "aws_eks_addon" "cloudwatch_observability" {
     applicationSignals    = { enabled = false }
     otlp                  = { enabled = false }
     otelPrometheusMonitor = { enabled = false }
-    containerLogs         = { enabled = true }
+    containerLogs = {
+      enabled = true
+      fluentBit = {
+        config = {
+          extraFiles = {
+            "application-log.conf" = templatefile("${path.module}/templates/application-log.conf.tftpl", { environment = var.environment_name })
+          }
+        }
+      }
+    }
   })
   pod_identity_association {
     role_arn        = aws_iam_role.cloudwatch_observability.arn
@@ -302,14 +311,20 @@ resource "aws_iam_policy" "workload" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
+    Statement = concat([
       {
         Sid      = "ServiceTableDataAccess"
         Effect   = "Allow"
         Action   = local.workload_dynamodb_actions[each.key]
         Resource = var.dynamodb_table_arns[each.value]
       },
-    ]
+      ],
+      each.key == "gateway" ? [{
+        Sid      = "EnvironmentFeatureFlagsReadOnly"
+        Effect   = "Allow"
+        Action   = ["dynamodb:BatchGetItem", "dynamodb:GetItem"]
+        Resource = var.dynamodb_table_arns["flags"]
+    }] : [])
   })
 }
 
