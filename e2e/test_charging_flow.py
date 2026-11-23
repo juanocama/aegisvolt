@@ -30,7 +30,14 @@ def _charge(stack, wallet, amount, key=None):
 
 
 @pytest.fixture(autouse=True)
-def _fault_flag_off(stack):
+def _fault_flag_off(request, stack):
+    """Mutating tests run with the fault flag off and restore it afterwards.
+    Read-only smoke tests (the only ones run against prod) never write flags."""
+    if request.node.get_closest_marker("mutating") is None:
+        yield
+        return
+    if stack.read_only:
+        pytest.skip("E2E_READ_ONLY: mutating scenario not run in this environment")
     stack.set_flag(FAULT, False)
     stack.wait_for_flag(FAULT, False)
     yield
@@ -47,6 +54,7 @@ def test_official_flags_are_exposed(stack):
     assert names == ["ENABLE_DYNAMIC_SURGE_PRICING", "ENABLE_FAST_CHARGE_BOOST", FAULT]
 
 
+@pytest.mark.mutating
 def test_happy_path_charges_once_and_releases(stack):
     wallet = f"e2e-{uuid.uuid4().hex[:8]}"
     result, variables = _charge(stack, wallet, 20.0)
@@ -63,6 +71,7 @@ def test_happy_path_charges_once_and_releases(stack):
     assert _connector(stack)[2] == "available"
 
 
+@pytest.mark.mutating
 def test_insufficient_funds_releases_connector(stack):
     wallet = f"e2e-{uuid.uuid4().hex[:8]}"
     result, _ = _charge(stack, wallet, 1000.0)
@@ -72,6 +81,7 @@ def test_insufficient_funds_releases_connector(stack):
     assert _connector(stack)[2] == "available"
 
 
+@pytest.mark.mutating
 def test_runtime_fault_flag_triggers_refund_then_release_without_redeploy(stack):
     stack.set_flag(FAULT, True)
     stack.wait_for_flag(FAULT, True)
