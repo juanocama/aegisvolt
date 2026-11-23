@@ -59,15 +59,15 @@ Exact operation list and contract gaps: `docs/GRAPHQL_CONTRACTS.md`.
 | Capability | Status | Evidence / gap |
 |---|---|---|
 | Dockerfiles and Compose | Present, unverified end-to-end | Compose defines Floci, three services, gateway; no frontend service |
-| Terraform bootstrap / workspaces / modules | Improved, not deployment-ready | Root and bootstrap validate locally; one shared state-bucket pattern and environment keys, fixed cluster naming, optional EKS access entries, and normalized CloudWatch paths are present. Real placeholders, API integration, and live AWS planning remain blocked. |
-| EKS/ECR | Partial | EKS and repositories declared; no node group/full app workloads |
+| Terraform bootstrap / workspaces / modules | Improved, not deployment-ready | Root and bootstrap validate locally; one shared state-bucket pattern and environment keys, fixed cluster naming, required EKS admin input, and normalized CloudWatch paths are present. Real account/region/state values and live AWS planning remain blocked. |
+| EKS/ECR | Partial | Private EKS API, managed node group, ECR repositories, explicit authentication mode/access entries, Pod Identity and CloudWatch add-ons are declared; the real admin ARN and AWS runtime are unverified. |
 | Kubernetes workloads | Present, locally rendered | Gateway plus three backend Deployments, four ClusterIP Services, ConfigMap, Namespace, ServiceAccounts, probes, resource bounds, and hardened container security contexts remain in root `k8s/` manifests |
 | Kubernetes environment overlays | Present, locally rendered | `k8s/overlays/{dev,test,prod}` set environment labels, environment tables, ECR paths, image SHA placeholder, service-account role ARN placeholders, and replica counts; locally asserted, no deployment has been performed |
 | Kubernetes canary routing | Partial / not deployed | Existing canary Ingress remains outside the root Kustomize graph; no verified stable/canary workloads, router, or request-level analysis is configured |
-| Kubernetes private API integration | Missing | API Gateway remains a regional HTTP API shell without route/integration/VPC Link/private execute-api endpoint wiring; ClusterIP Services remain internal only |
-| Kubernetes CI rendering | Present, locally validated | Root validation retains `Path("k8s").glob("*.yaml")`; CI also renders each checked-in overlay with `LoadRestrictionsNone` and asserts environment-specific resources/configuration, scoped to repository-controlled files |
-| Kubernetes log forwarding | Unverified / incomplete | CloudWatch log groups and IAM permissions exist, but no EKS pod log collector is declared in the inspected manifests |
-| Prefect | Partial | One gateway health check + SAGA counts; no three-environment cross-table audit |
+| Kubernetes private API integration | Partial | Private REST API, execute-api VPC endpoint and source-VPCE resource policy exist in Terraform; internal ALB Ingress and optional VPC Link integration are declared. LBC installation and ALB output are pending. |
+| Kubernetes CI rendering | Present, locally rendered | Root validation retains `Path("k8s").glob("*.yaml")`; CI renders each overlay and adds pinned Kubeconform validation. Kubeconform was not run locally. |
+| Kubernetes log forwarding | Declared, not runtime-verified | CloudWatch Observability add-on with Fluent Bit and retained log groups is in Terraform; no deployed collector evidence. |
+| Prefect | Partial, implemented source updated in Phase 4 | Explicit three-environment private health checks, paginated SAGA/service scans, consistency summaries, and CloudWatch metrics exist; Prefect runtime IAM/network/dashboard remain unconfigured. |
 | PR CI | Partial | pytest, frontend build, Terraform fmt/init/validate, Compose config; no integration/E2E/plan/lint pipeline |
 | Environment promotion | Missing/partial | Push-based jobs do not enforce linear PR promotion and conditions require review |
 | Branch protection helper | Partial | Script only prints a suggested GitHub command; it does not configure protection |
@@ -188,3 +188,19 @@ Generated/local material observed in the tree includes `frontend/node_modules`,
 `frontend/dist`, `frontend/tsconfig.tsbuildinfo`, `.pytest_cache`, and
 `__pycache__`. These are not source-of-truth and must not be used as evidence
 of completeness.
+
+## Phase 4 infrastructure and observability (2026-11-23)
+
+| Capability | Status | Evidence / gap |
+|---|---|---|
+| Private GraphQL API | Implemented in Terraform, integration gated | Private REST API, execute-api endpoint/policy and optional REST VPC Link integration are declared. Actual ALB and AWS behavior are not verified. |
+| Internal GraphQL ALB ingress | Implemented in manifests, controller pending | Internal `ingressClassName: alb` routes `/graphql`, health target `/health`; AWS LBC IAM role/chart/controller are not installed. |
+| EKS authentication | Implemented in Terraform, user configuration required | Kubernetes 1.37 and `API_AND_CONFIG_MAP`; at least one valid EKS administrator ARN is required. |
+| Application IAM | Implemented in Terraform | IRSA trust is service-account scoped and DynamoDB actions map to observed calls; no AWS Access Analyzer/live validation. |
+| CloudWatch pod logs | Declared in Terraform, AWS validation required | CloudWatch Observability and Pod Identity add-ons plus retained log groups are declared; no deployed collector evidence. |
+| JSON request logs | Implemented in source | FastAPI middleware writes method/path/status/duration/environment/service/correlation JSON without bodies; no live CloudWatch parsing evidence. |
+| Prefect audit | Implemented in source, runtime config required | Configured health probes for four workloads in dev/test/prod, paginated DynamoDB audits, compensation summaries and metrics; no Prefect runner IAM/network/dashboard. |
+| Kubernetes schemas | Implemented in CI, not run locally | Kubeconform v0.8.0 image digest validates root and dev/test/prod render against Kubernetes 1.37. |
+
+Targeted remediation and infrastructure readiness addendum: `docs/PHASE_4_REMEDIATION_READINESS.md`.
+Detailed gaps, validation results, decisions, and required values: `docs/PHASE_4_INFRASTRUCTURE_OBSERVABILITY_REPORT.md`.

@@ -27,7 +27,7 @@ def test_unverified_ingress_is_not_part_of_the_deployable_kustomize_base():
     ).read_text()
 
 
-def test_only_microservices_have_http_health_routes():
+def test_services_and_gateway_expose_health_used_by_internal_alb():
     service_apps = (
         "services/station-reservation/app.py",
         "services/billing-wallet/app.py",
@@ -37,8 +37,12 @@ def test_only_microservices_have_http_health_routes():
         source = (ROOT / relative_path).read_text()
         assert '@app.get("/health")' in source
 
+    # Phase 4: the internal ALB health-checks the GraphQL gateway on /health.
     gateway = (ROOT / "gateway/app.py").read_text()
-    assert '@app.get("/health")' not in gateway
+    assert '@app.get("/health")' in gateway
+    ingress = (ROOT / "k8s/gateway-ingress.yaml").read_text()
+    assert "alb.ingress.kubernetes.io/healthcheck-path: /health" in ingress
+    assert "alb.ingress.kubernetes.io/scheme: internal" in ingress
 
 
 def test_kubernetes_traffic_path_has_no_canary_pair_or_router_resource():

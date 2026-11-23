@@ -9,8 +9,10 @@ from pydantic import BaseModel, Field
 
 from common.dynamodb import dynamodb_client, dynamodb_resource, ensure_table
 from common.environment import environment_table_name
+from common.observability import install_request_logging
 
 app = FastAPI(title="AegisVolt Billing Wallet")
+install_request_logging(app, "billing-wallet")
 TABLE = environment_table_name("wallets")
 table = dynamodb_resource().Table(TABLE)
 dynamodb = dynamodb_client()

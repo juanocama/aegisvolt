@@ -6,6 +6,7 @@ metadata:
 data:
   ENVIRONMENT: dev
   SAGA_TABLE: aegisvolt-dev-sagas
+  AWS_DEFAULT_REGION: us-east-1
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -91,3 +92,11 @@ metadata:
   namespace: aegisvolt
   annotations:
     eks.amazonaws.com/role-arn: arn:aws:iam::CHANGE_ME_ACCOUNT_ID:role/dev-aegisvolt-energy-dispatch-irsa
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: frontend-config
+  namespace: aegisvolt
+data:
+  GRAPHQL_UPSTREAM_PATH: /dev/graphql

@@ -10,8 +10,10 @@ from pydantic import BaseModel, Field
 
 from common.dynamodb import dynamodb_client, dynamodb_resource, ensure_table
 from common.environment import environment_table_name
+from common.observability import install_request_logging
 
 app = FastAPI(title="AegisVolt Energy Dispatch")
+install_request_logging(app, "energy-dispatch")
 TABLE = environment_table_name("dispatch")
 table = dynamodb_resource().Table(TABLE)
 dynamodb = dynamodb_client()

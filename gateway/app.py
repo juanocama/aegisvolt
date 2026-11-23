@@ -17,6 +17,7 @@ from strawberry.fastapi import GraphQLRouter
 from common.dynamodb import dynamodb_resource, ensure_table
 from common.environment import current_environment, environment_table_name
 from common.feature_flags import load_feature_flags
+from common.observability import current_correlation_id, install_request_logging
 
 STATION_URL = os.getenv("STATION_URL", "http://localhost:8001")
 BILLING_URL = os.getenv("BILLING_URL", "http://localhost:8002")
@@ -27,6 +28,7 @@ SAGA_LEASE_SECONDS = 120
 TERMINAL_STATES = {"COMPLETED", "COMPENSATED", "FAILED"}
 
 app = FastAPI(title="AegisVolt GraphQL Gateway")
+install_request_logging(app, "gateway")
 saga_table = ensure_table(SAGA_TABLE)
 
 
@@ -264,7 +266,9 @@ async def _post_idempotent(
 ) -> httpx.Response:
     for attempt in range(2):
         try:
-            response = await client.post(url, json=payload)
+            correlation_id = payload.get("correlation_id")
+            headers = {"X-Correlation-ID": correlation_id} if correlation_id else {}
+            response = await client.post(url, json=payload, headers=headers)
         except httpx.TransportError:
             if attempt == 0:
                 continue
@@ -302,7 +306,7 @@ async def compensate(
             response = await _post_idempotent(
                 client,
                 f"{BILLING_URL}/charges/{saga['charge_id']}/refund",
-                {},
+                {"correlation_id": saga["correlation_id"]},
             )
             result = response.json()
             if result.get("status") != "refunded":
@@ -328,7 +332,7 @@ async def compensate(
             response = await _post_idempotent(
                 client,
                 f"{STATION_URL}/reservations/{saga['reservation_id']}/cancel",
-                {},
+                {"correlation_id": saga["correlation_id"]},
             )
             result = response.json()
             if result.get("status") != "cancelled":
@@ -406,6 +410,7 @@ async def execute_saga(
                             "connector_id": connector_id,
                             "wallet_id": wallet_id,
                             "idempotency_key": idempotency_key,
+                            "correlation_id": saga["correlation_id"],
                         },
                     )
                     reserved = response.json()
@@ -638,7 +643,7 @@ class Mutation:
             connector_id,
             amount,
             idempotency_key,
-            str(uuid.uuid4()),
+            current_correlation_id() or str(uuid.uuid4()),
             effective_fault,
         )
         return ChargeResult(
@@ -675,7 +680,8 @@ class Mutation:
 
         async with httpx.AsyncClient(timeout=5) as client:
             activation_response = await client.post(
-                f"{DISPATCH_URL}/activations/{activation_id}/stop"
+                f"{DISPATCH_URL}/activations/{activation_id}/stop",
+                headers={"X-Correlation-ID": saga["correlation_id"]},
             )
             if activation_response.status_code >= 400:
                 raise GraphQLError(
@@ -683,7 +689,8 @@ class Mutation:
                 )
 
             reservation_response = await client.post(
-                f"{STATION_URL}/reservations/{reservation_id}/cancel"
+                f"{STATION_URL}/reservations/{reservation_id}/cancel",
+                headers={"X-Correlation-ID": saga["correlation_id"]},
             )
             if reservation_response.status_code >= 400:
                 raise GraphQLError(
@@ -805,4 +812,12 @@ class Mutation:
 
 schema = strawberry.Schema(query=Query, mutation=Mutation)
 graphql_app = GraphQLRouter(schema)
+
+
+@app.get("/health")
+async def health():
+    """Process health for Kubernetes and the internal ALB target group."""
+    return {"status": "ok"}
+
+
 app.include_router(graphql_app, prefix="/graphql")

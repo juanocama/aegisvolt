@@ -7,10 +7,15 @@ resources:
   - serviceaccounts.yaml
   - gateway-deployment.yaml
   - gateway-service.yaml
+  - gateway-ingress.yaml
   - station-reservation.yaml
   - billing-wallet.yaml
   - energy-dispatch.yaml
+  - frontend.yaml
 images:
+  - name: aegisvolt-frontend
+    newName: CHANGE_ME_ECR_ACCOUNT.dkr.ecr.CHANGE_ME_AWS_REGION.amazonaws.com/aegisvolt/dev/frontend
+    newTag: CHANGE_ME_TAG
   - name: aegisvolt-gateway
     newName: CHANGE_ME_ECR_ACCOUNT.dkr.ecr.CHANGE_ME_AWS_REGION.amazonaws.com/aegisvolt/dev/gateway
     newTag: CHANGE_ME_TAG

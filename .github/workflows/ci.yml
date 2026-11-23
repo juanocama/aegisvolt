@@ -21,7 +21,7 @@ jobs:
           cache: pip
           cache-dependency-path: requirements.txt
       - run: python -m pip install -r requirements.txt
-      - run: python -m compileall -q common gateway services tests
+      - run: python -m compileall -q common gateway services tests observability/prefect
       - run: python -m pytest -q
 
   frontend:
@@ -68,7 +68,7 @@ jobs:
       - run: python -m pip install PyYAML==6.0.2
       - uses: azure/setup-kubectl@3e0aec4d80787158d308d7b364cb1b702e7feb7f # v4.0.0
         with:
-          version: "v1.32.0"
+          version: "v1.37.0"
       - name: Render Kustomize resources
         shell: bash
         run: |
@@ -182,6 +182,27 @@ jobs:
                   assert services[name]["spec"]["type"] == "ClusterIP"
               print(f"Validated {environment} overlay: {len(resources)} objects, environment tables, images, probes, resources, and replicas.")
           PY
+
+      - name: Validate Kubernetes schemas
+        shell: bash
+        run: |
+          set -euo pipefail
+          kubectl kustomize k8s > "$RUNNER_TEMP/aegisvolt-root-rendered.yaml"
+          for environment in dev test prod; do
+            kubectl kustomize --load-restrictor LoadRestrictionsNone "k8s/overlays/${environment}" \
+              > "$RUNNER_TEMP/aegisvolt-${environment}-schema.yaml"
+          done
+          docker run --rm \
+            -v "$GITHUB_WORKSPACE:/work:ro" \
+            -v "$RUNNER_TEMP:/rendered:ro" \
+            -w /work \
+            ghcr.io/yannh/kubeconform:v0.8.0-alpine@sha256:917d9b2d6a9e8e95851344dbfb0a1f1d826cc4c6e8c7b8603e7ff11e97c39856 \
+            -strict -summary -kubernetes-version 1.37.0 \
+            -schema-location 'https://raw.githubusercontent.com/yannh/kubernetes-json-schema/v1.37.0-standalone-strict/{{.ResourceKind}}{{.KindSuffix}}.json' \
+            /rendered/aegisvolt-root-rendered.yaml \
+            /rendered/aegisvolt-dev-schema.yaml \
+            /rendered/aegisvolt-test-schema.yaml \
+            /rendered/aegisvolt-prod-schema.yaml
 
   docker-images:
     name: Build ${{ matrix.image }} (no push)
