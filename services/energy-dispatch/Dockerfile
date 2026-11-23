@@ -4,4 +4,4 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY common ./common
 COPY services/energy-dispatch/app.py ./app.py
-CMD ["uvicorn","app:app","--host","0.0.0.0","--port","8003"]
+CMD ["uvicorn","app:app","--host","0.0.0.0","--port","8003","--no-access-log"]

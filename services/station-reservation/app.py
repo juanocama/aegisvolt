@@ -9,8 +9,10 @@ from pydantic import BaseModel, Field
 
 from common.dynamodb import dynamodb_resource, ensure_table
 from common.environment import environment_table_name
+from common.observability import install_request_logging
 
 app = FastAPI(title="AegisVolt Station Reservation")
+install_request_logging(app, "station-reservation")
 TABLE = environment_table_name("stations")
 table = dynamodb_resource().Table(TABLE)
 
@@ -30,6 +32,7 @@ class Reservation(BaseModel):
     connector_id: str = Field(min_length=1)
     wallet_id: str = Field(min_length=1)
     idempotency_key: str = Field(min_length=1)
+    correlation_id: str | None = None
 
 
 def _now() -> str:
@@ -136,6 +139,7 @@ def reserve(reservation: Reservation):
             "connector_id": reservation.connector_id,
             "wallet_id": reservation.wallet_id,
             "idempotency_key": reservation.idempotency_key,
+            "correlation_id": reservation.correlation_id,
             "request_fingerprint": fingerprint,
             "status": "reserving",
             "created_at": timestamp,
