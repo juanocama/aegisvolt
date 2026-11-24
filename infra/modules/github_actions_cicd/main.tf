@@ -53,7 +53,7 @@ resource "aws_iam_role_policy_attachment" "plan_read_only" {
 # blast radius is limited by the OIDC subject and GitHub environment rules.
 resource "aws_iam_role" "deploy" {
   name                 = "${var.prefix}-github-deploy"
-  max_session_duration = 3600
+  max_session_duration = 7200
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
     Statement = [{

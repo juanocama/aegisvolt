@@ -40,6 +40,12 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
+      # The runner's system python3 is externally managed (PEP 668): pip
+      # installs for the canary gate and post-deploy E2E need their own Python.
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+
       - name: Detect target environment from the merged branch
         shell: bash
         env:
@@ -55,7 +61,7 @@ jobs:
         with:
           role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
           aws-region: ${{ vars.AWS_REGION }}
-          role-duration-seconds: 3600
+          role-duration-seconds: 7200
 
       - uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3.1.2
         with:
@@ -68,7 +74,15 @@ jobs:
           set -euo pipefail
           terraform init -input=false -backend-config="backend/${TARGET_ENVIRONMENT}.hcl"
           terraform workspace select "${TARGET_ENVIRONMENT}"
-          terraform apply -input=false -auto-approve -var-file="envs/${TARGET_ENVIRONMENT}.tfvars"
+          # Keep the API Gateway -> VPC Link -> ALB integration on redeploys
+          # (omitting these vars would destroy and recreate it = API downtime).
+          integration=()
+          if read -r arn dns < <(aws elbv2 describe-load-balancers --names "${TARGET_ENVIRONMENT}-aegisvolt-graphql" \
+                --query 'LoadBalancers[?State.Code==`active`].[LoadBalancerArn,DNSName]' --output text 2>/dev/null) && [[ -n "${arn:-}" ]]; then
+            integration=(-var enable_graphql_integration=true -var "gateway_alb_arn=$arn" -var "gateway_alb_dns_name=$dns")
+            echo "Existing GraphQL ALB found; keeping the private API integration."
+          fi
+          terraform apply -input=false -auto-approve -var-file="envs/${TARGET_ENVIRONMENT}.tfvars" "${integration[@]}"
           terraform output -json > "$RUNNER_TEMP/tf.json"
 
       - name: Read infrastructure outputs
@@ -220,6 +234,8 @@ jobs:
           E2E_GRAPHQL_URL: http://127.0.0.1:18080/graphql
           E2E_FRONTEND_URL: http://127.0.0.1:18080
           E2E_ENVIRONMENT: ${{ github.ref_name }}
+          # prod: read-only smoke only (no test charges, no flag writes)
+          E2E_READ_ONLY: ${{ github.ref_name == 'prod' }}
           AWS_DEFAULT_REGION: ${{ vars.AWS_REGION }}
         run: |
           python3 -m pip install --quiet -r requirements.txt

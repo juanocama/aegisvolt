@@ -82,7 +82,7 @@ resource "aws_cloudwatch_log_metric_filter" "requests" {
   for_each       = toset(["gateway", "gateway-canary"])
   name           = "${var.prefix}-${each.key}-requests"
   log_group_name = aws_cloudwatch_log_group.service[each.key].name
-  pattern        = "{ $.log_processed.status_code = * }"
+  pattern        = "{ $.log_processed.status_code >= 100 }"
   metric_transformation {
     name      = "Requests-${each.key}"
     namespace = local.metric_namespace
