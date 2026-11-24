@@ -6,6 +6,7 @@ Required:
 Optional:
   E2E_FRONTEND_URL  Frontend base URL; enables the browser-path checks
   E2E_ENVIRONMENT   expected environment name (default dev)
+  E2E_READ_ONLY     true = only read-only smoke tests (used for prod)
   AWS_ENDPOINT_URL  emulator endpoint when toggling flags locally
 The suite fails (does not skip) when E2E_GRAPHQL_URL is missing.
 """
@@ -32,6 +33,7 @@ class Stack:
         self.graphql_url = _require("E2E_GRAPHQL_URL")
         self.frontend_url = os.getenv("E2E_FRONTEND_URL", "").rstrip("/") or None
         self.environment = os.getenv("E2E_ENVIRONMENT", "dev")
+        self.read_only = os.getenv("E2E_READ_ONLY", "false").strip().lower() == "true"
         kwargs = {"region_name": os.getenv("AWS_DEFAULT_REGION", "us-east-1")}
         if os.getenv("AWS_ENDPOINT_URL"):
             kwargs["endpoint_url"] = os.environ["AWS_ENDPOINT_URL"]
@@ -68,6 +70,10 @@ class Stack:
                 return
             time.sleep(0.5)
         raise AssertionError(f"{name} did not become {enabled} within {timeout}s")
+
+
+def pytest_configure(config):
+    config.addinivalue_line("markers", "mutating: creates charges or toggles flags (skipped when E2E_READ_ONLY=true)")
 
 
 @pytest.fixture(scope="session")

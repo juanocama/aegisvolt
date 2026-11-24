@@ -122,6 +122,12 @@ resource "aws_eks_cluster" "main" {
     "scheduler",
   ]
   depends_on = [aws_iam_role_policy_attachment.eks_cluster]
+
+  lifecycle {
+    # Create-only flag that the EKS API does not return: an imported cluster
+    # reads it back as the provider default and would otherwise be replaced.
+    ignore_changes = [access_config[0].bootstrap_cluster_creator_admin_permissions]
+  }
 }
 
 resource "aws_eks_node_group" "main" {
